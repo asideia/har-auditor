@@ -104,22 +104,27 @@ export function initializeDefaultPlugins(): void {
   // 5. Anomalias de Rede (N+1 & Race Condition)
   const anomaliesPlugin: ToolPlugin = {
     id: 'anomalies',
-    name: 'Anomalias de Rede (N+1 & Race)',
-    shortName: 'N+1 & Race Hazard',
-    description: 'Detecção de chamadas idênticas em janela de 500ms e inversão assíncrona de respostas.',
+    name: 'Anomalias de Rede (Falhas, N+1 & Race)',
+    shortName: 'Anomalias & Falhas',
+    description: 'Detecção de falhas de comunicação (Status 0), chamadas idênticas em janela de 500ms e inversão assíncrona de respostas.',
     category: 'performance',
     icon: Zap,
     getAlertCount: (metrics, entries) => {
-      // Fast heuristic count of duplicates or race hazards
       let duplicateCount = 0;
+      let commFailures = 0;
       const seen = new Map<string, number>();
       entries.forEach((e) => {
         const key = `${e.request.method} ${e.request.url}`;
         const prev = seen.get(key) || 0;
         seen.set(key, prev + 1);
         if (prev === 1) duplicateCount++;
+
+        // Status 0 / Failed communication
+        if (e.response.status === 0 || !e.response.status || e.statusCategory === 'failed') {
+          commFailures++;
+        }
       });
-      return duplicateCount;
+      return duplicateCount + commFailures;
     },
     badgeVariant: 'danger',
     render: (context) => React.createElement(AnomaliesTool, context),

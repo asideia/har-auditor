@@ -30,6 +30,7 @@ export const AppLayout: React.FC = () => {
     progressMessage,
     errorMessage,
     activeToolId,
+    setActiveTool,
     selectedEntryId,
     setSelectedEntryId,
     searchQuery,
@@ -76,6 +77,13 @@ export const AppLayout: React.FC = () => {
     if (e.target.files && e.target.files.length > 0) {
       const file = e.target.files[0];
       await loadFile(file);
+    }
+  };
+
+  const handleSelectEntry = (id: string | null) => {
+    setSelectedEntryId(id);
+    if (id && activeToolId !== 'requests-inspector') {
+      setActiveTool('requests-inspector');
     }
   };
 
@@ -377,7 +385,7 @@ export const AppLayout: React.FC = () => {
                 har,
                 metrics,
                 selectedEntryId,
-                onSelectEntry: setSelectedEntryId,
+                onSelectEntry: handleSelectEntry,
                 entries,
                 searchQuery,
                 setSearchQuery,

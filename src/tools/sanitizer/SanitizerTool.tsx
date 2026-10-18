@@ -15,6 +15,11 @@ import {
   FileCode,
   AlertTriangle,
   Sparkles,
+  ArrowRightLeft,
+  Columns,
+  Table as TableIcon,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 export const SanitizerTool: React.FC<ToolPluginContext> = ({ har, entries }) => {
@@ -65,9 +70,13 @@ export const SanitizerTool: React.FC<ToolPluginContext> = ({ har, entries }) => 
 
   const [isExporting, setIsExporting] = useState(false);
   const [exportSuccess, setExportSuccess] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // View state: 'result' (Comparativo Antes/Depois) vs 'rules' (Configuração de Regras)
   const [viewMode, setViewMode] = useState<'result' | 'rules'>('result');
+
+  // Comparison layout: 'sideBySide' vs 'tableDiff'
+  const [comparisonLayout, setComparisonLayout] = useState<'sideBySide' | 'tableDiff'>('sideBySide');
 
   // Selected entry for comparison preview
   const [selectedEntryIndex, setSelectedEntryIndex] = useState<number>(0);
@@ -89,6 +98,13 @@ export const SanitizerTool: React.FC<ToolPluginContext> = ({ har, entries }) => 
       setBodyKeysToRedact([...bodyKeysToRedact, val]);
       setCustomBodyKeyInput('');
     }
+  };
+
+  // Copy helper
+  const copyToClipboard = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 1800);
   };
 
   // Calculate impact statistics
@@ -332,35 +348,35 @@ export const SanitizerTool: React.FC<ToolPluginContext> = ({ har, entries }) => 
   }, [currentEntry, queryKeysToRedact]);
 
   return (
-    <div className="flex flex-col h-full bg-zinc-50/60 dark:bg-zinc-950 overflow-y-auto p-5 space-y-6 transition-colors font-sans">
+    <div className="flex flex-col h-full bg-zinc-50/60 dark:bg-zinc-950 overflow-y-auto p-3 sm:p-5 space-y-4 sm:space-y-5 transition-colors font-sans">
       {/* Top Banner & Actions Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-zinc-200 dark:border-zinc-800 pb-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-zinc-200 dark:border-zinc-800 pb-3">
         <div>
-          <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-            <ShieldCheck className="text-emerald-600 dark:text-emerald-400" size={22} />
-            Sanitizador de Arquivos & Privacidade (LGPD / GDPR)
+          <h2 className="text-base sm:text-lg font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+            <ShieldCheck className="text-emerald-600 dark:text-emerald-400 shrink-0" size={20} />
+            Sanitizador de Arquivos &amp; Privacidade (LGPD / GDPR)
           </h2>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-            Compare antes e depois da higienização para ter 100% de confiança antes de exportar e compartilhar dados.
+          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+            Compare antes e depois da higienização para validar dados confidenciais antes do compartilhamento.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Main Requested Switch Button: Mostrar Resultado vs Mostrar Regras */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Main Switch Button: Mostrar Resultado vs Mostrar Regras */}
           <button
             onClick={() => setViewMode(viewMode === 'result' ? 'rules' : 'result')}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-200 border border-zinc-300 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition shadow-2xs"
             title={viewMode === 'result' ? 'Clique para editar as regras e chaves' : 'Clique para ver o resultado do comparativo'}
           >
             {viewMode === 'result' ? (
               <>
                 <SlidersHorizontal size={14} className="text-cyan-600 dark:text-cyan-400" />
-                <span>Mostrar Regras</span>
+                <span>Configurar Regras</span>
               </>
             ) : (
               <>
                 <Eye size={14} className="text-emerald-600 dark:text-emerald-400" />
-                <span>Mostrar Resultado</span>
+                <span>Ver Comparativo</span>
               </>
             )}
           </button>
@@ -369,7 +385,7 @@ export const SanitizerTool: React.FC<ToolPluginContext> = ({ har, entries }) => 
           <button
             onClick={handleDownloadSanitized}
             disabled={!har || isExporting}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold shadow-xs transition ${
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition ${
               !har || isExporting
                 ? 'bg-zinc-300 dark:bg-zinc-800 text-zinc-500 cursor-not-allowed'
                 : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/20'
@@ -377,68 +393,68 @@ export const SanitizerTool: React.FC<ToolPluginContext> = ({ har, entries }) => 
           >
             {isExporting ? (
               <>
-                <RefreshCw size={15} className="animate-spin" />
+                <RefreshCw size={14} className="animate-spin" />
                 <span>Gerando HAR...</span>
               </>
             ) : exportSuccess ? (
               <>
-                <FileCheck size={15} className="text-white" />
+                <FileCheck size={14} className="text-white" />
                 <span>HAR Baixado com Sucesso!</span>
               </>
             ) : (
               <>
-                <Download size={15} />
-                <span>Baixar HAR Sanitizado (.har)</span>
+                <Download size={14} />
+                <span>Baixar HAR Sanitizado</span>
               </>
             )}
           </button>
         </div>
       </div>
 
-      {/* Impact Stat Badges */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-3.5 rounded-lg bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
+      {/* Impact Stat Badges (Clean, Minimal, Responsive) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="p-3 rounded-lg bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
           <div className="text-[11px] text-zinc-500 dark:text-zinc-400 font-medium uppercase tracking-wider">
             Headers Removidos
           </div>
-          <div className="text-2xl font-bold font-mono text-zinc-900 dark:text-zinc-100 mt-0.5">
+          <div className="text-xl font-bold font-mono text-zinc-900 dark:text-zinc-100 mt-0.5">
             {stats.headersAffected}
           </div>
-          <div className="text-[10px] text-zinc-500">Authorization, API Keys, etc.</div>
+          <div className="text-[10px] text-zinc-400">Tokens de autorização, chaves</div>
         </div>
 
-        <div className="p-3.5 rounded-lg bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
+        <div className="p-3 rounded-lg bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
           <div className="text-[11px] text-zinc-500 dark:text-zinc-400 font-medium uppercase tracking-wider">
             Cookies Limpos
           </div>
-          <div className="text-2xl font-bold font-mono text-cyan-700 dark:text-cyan-400 mt-0.5">
+          <div className="text-xl font-bold font-mono text-cyan-700 dark:text-cyan-400 mt-0.5">
             {stats.cookiesAffected}
           </div>
-          <div className="text-[10px] text-zinc-500">Sessões e identificadores únicos</div>
+          <div className="text-[10px] text-zinc-400">Sessões e rastreadores</div>
         </div>
 
-        <div className="p-3.5 rounded-lg bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
+        <div className="p-3 rounded-lg bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
           <div className="text-[11px] text-zinc-500 dark:text-zinc-400 font-medium uppercase tracking-wider">
-            Tokens em URL Mascarados
+            Query Strings Mascaradas
           </div>
-          <div className="text-2xl font-bold font-mono text-amber-700 dark:text-amber-400 mt-0.5">
+          <div className="text-xl font-bold font-mono text-amber-700 dark:text-amber-400 mt-0.5">
             {stats.queryParamsAffected}
           </div>
-          <div className="text-[10px] text-zinc-500">Parâmetros de query sensíveis</div>
+          <div className="text-[10px] text-zinc-400">Parâmetros sensíveis em URLs</div>
         </div>
 
-        <div className="p-3.5 rounded-lg bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
+        <div className="p-3 rounded-lg bg-white dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 shadow-2xs">
           <div className="text-[11px] text-zinc-500 dark:text-zinc-400 font-medium uppercase tracking-wider">
             Payloads Protegidos
           </div>
-          <div className="text-2xl font-bold font-mono text-emerald-700 dark:text-emerald-400 mt-0.5">
+          <div className="text-xl font-bold font-mono text-emerald-700 dark:text-emerald-400 mt-0.5">
             {stats.bodiesAffected}
           </div>
-          <div className="text-[10px] text-zinc-500">JSON com senhas, CPFs ou PIIs</div>
+          <div className="text-[10px] text-zinc-400">JSON com senhas, CPFs ou PII</div>
         </div>
       </div>
 
-      {/* VIEW 1: COMPARATIVE RESULT PREVIEW ("MOSTRAR RESULTADO") */}
+      {/* VIEW 1: COMPARATIVE RESULT PREVIEW ("MOSTRAR RESULTADO") - WITH HORIZONTAL SCROLLBAR */}
       {viewMode === 'result' && (
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/70 overflow-hidden shadow-xs space-y-0 animate-in fade-in duration-150">
           {entries.length === 0 ? (
@@ -453,218 +469,342 @@ export const SanitizerTool: React.FC<ToolPluginContext> = ({ har, entries }) => 
             </div>
           ) : (
             <>
-              {/* Comparison Header Bar */}
-              <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100/70 dark:bg-zinc-900 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              {/* Comparison Control Toolbar */}
+              <div className="p-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100/70 dark:bg-zinc-900 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <Sparkles size={18} className="text-cyan-600 dark:text-cyan-400" />
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                    Comparativo Interativo: <span className="text-rose-600 dark:text-rose-400">Como Está (Original)</span> vs{' '}
-                    <span className="text-emerald-600 dark:text-emerald-400">Como Irá Ficar (Sanitizado)</span>
-                  </h3>
+                  <Sparkles size={16} className="text-cyan-600 dark:text-cyan-400 shrink-0" />
+                  <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                    Comparativo Antes e Depois da Higienização
+                  </span>
+                  <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800 font-medium">
+                    <ArrowRightLeft size={11} />
+                    Rolagem horizontal ativa
+                  </span>
                 </div>
 
-                {/* Request Picker Dropdown */}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">Requisição em Análise:</span>
-                  <select
-                    value={selectedEntryIndex}
-                    onChange={(e) => setSelectedEntryIndex(Number(e.target.value))}
-                    className="text-xs font-mono bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-md px-2.5 py-1.5 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-cyan-500"
-                  >
-                    {entries.map((entry, idx) => {
-                      const hasSensitiveHeader = entry.request.headers.some((h) =>
-                        headersToRemove.includes(h.name.toLowerCase())
-                      );
-                      return (
-                        <option key={entry.id} value={idx}>
-                          #{idx + 1} [{entry.request.method}] {entry.parsedUrl.pathname}{' '}
-                          {hasSensitiveHeader ? '⚠️ (Possui Auth/Cookie)' : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Request Picker Dropdown */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">Requisição:</span>
+                    <select
+                      value={selectedEntryIndex}
+                      onChange={(e) => setSelectedEntryIndex(Number(e.target.value))}
+                      className="text-xs font-mono bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-md px-2 py-1 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-cyan-500 max-w-[260px] truncate"
+                    >
+                      {entries.map((entry, idx) => {
+                        const hasSensitiveHeader = entry.request.headers.some((h) =>
+                          headersToRemove.includes(h.name.toLowerCase())
+                        );
+                        return (
+                          <option key={entry.id} value={idx}>
+                            #{idx + 1} [{entry.request.method}] {entry.parsedUrl.pathname}{' '}
+                            {hasSensitiveHeader ? '⚠️ (Auth/Cookie)' : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  {/* Layout Mode Toggle: Side-by-Side vs Table Diff */}
+                  <div className="flex items-center gap-1 bg-white dark:bg-zinc-950 p-0.5 rounded-md border border-zinc-200 dark:border-zinc-800 text-xs">
+                    <button
+                      onClick={() => setComparisonLayout('sideBySide')}
+                      className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition ${
+                        comparisonLayout === 'sideBySide'
+                          ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-semibold shadow-2xs'
+                          : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                      }`}
+                      title="Visualização Lado a Lado"
+                    >
+                      <Columns size={12} />
+                      <span className="hidden sm:inline">Lado a Lado</span>
+                    </button>
+                    <button
+                      onClick={() => setComparisonLayout('tableDiff')}
+                      className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition ${
+                        comparisonLayout === 'tableDiff'
+                          ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 font-semibold shadow-2xs'
+                          : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                      }`}
+                      title="Visualização em Tabela Diff Unificada"
+                    >
+                      <TableIcon size={12} />
+                      <span className="hidden sm:inline">Tabela Diff</span>
+                    </button>
+                  </div>
                 </div>
               </div>
 
               {/* View Mode Tabs (Headers vs Body vs URL) */}
-              <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/40 px-4 text-xs font-medium">
+              <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/40 px-3 text-xs font-medium overflow-x-auto">
                 <button
                   onClick={() => setComparisonTab('headers')}
-                  className={`px-4 py-2.5 border-b-2 transition ${
+                  className={`px-3 py-2 border-b-2 transition whitespace-nowrap ${
                     comparisonTab === 'headers'
                       ? 'border-cyan-600 text-cyan-700 dark:text-cyan-400 font-semibold'
                       : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
                   }`}
                 >
-                  Cabeçalhos HTTP (Headers)
+                  Cabeçalhos HTTP ({comparisonHeaders.originalReq.length})
                 </button>
                 <button
                   onClick={() => setComparisonTab('body')}
-                  className={`px-4 py-2.5 border-b-2 transition ${
+                  className={`px-3 py-2 border-b-2 transition whitespace-nowrap ${
                     comparisonTab === 'body'
                       ? 'border-cyan-600 text-cyan-700 dark:text-cyan-400 font-semibold'
                       : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
                   }`}
                 >
-                  Corpo / Payload (Body JSON)
+                  Corpo / Payload JSON
                 </button>
                 <button
                   onClick={() => setComparisonTab('url')}
-                  className={`px-4 py-2.5 border-b-2 transition ${
+                  className={`px-3 py-2 border-b-2 transition whitespace-nowrap ${
                     comparisonTab === 'url'
                       ? 'border-cyan-600 text-cyan-700 dark:text-cyan-400 font-semibold'
                       : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
                   }`}
                 >
-                  URL & Query String
+                  URL &amp; Query String
                 </button>
               </div>
 
-              {/* Side-by-Side Comparison Canvas */}
-              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* LEFT: ORIGINAL (COMO ESTÁ) */}
-                <div className="border border-rose-200 dark:border-rose-950 rounded-lg overflow-hidden bg-rose-50/30 dark:bg-rose-950/10 flex flex-col">
-                  <div className="px-3.5 py-2.5 bg-rose-100/70 dark:bg-rose-950/40 border-b border-rose-200 dark:border-rose-900/60 flex items-center justify-between text-xs font-semibold text-rose-900 dark:text-rose-200">
-                    <span className="flex items-center gap-1.5">
-                      <AlertTriangle size={14} className="text-rose-600 dark:text-rose-400" />
-                      Como Está Agora (Original Não Sanitizado)
-                    </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-rose-200 dark:bg-rose-900 text-rose-900 dark:text-rose-200">
-                      Dados Expostos
-                    </span>
-                  </div>
+              {/* HORIZONTAL SCROLL CANVAS CONTAINER */}
+              <div className="overflow-x-auto w-full max-w-full p-4">
+                {comparisonLayout === 'sideBySide' ? (
+                  /* MODE 1: SIDE-BY-SIDE WITH MIN-WIDTH & HORIZONTAL SCROLL */
+                  <div className="grid grid-cols-2 gap-4 min-w-[780px]">
+                    {/* LEFT: ORIGINAL (COMO ESTÁ) */}
+                    <div className="border border-rose-200 dark:border-rose-950 rounded-lg overflow-hidden bg-rose-50/20 dark:bg-rose-950/10 flex flex-col shadow-2xs">
+                      <div className="px-3.5 py-2 bg-rose-100/70 dark:bg-rose-950/40 border-b border-rose-200 dark:border-rose-900/60 flex items-center justify-between text-xs font-semibold text-rose-900 dark:text-rose-200 select-none">
+                        <span className="flex items-center gap-1.5">
+                          <AlertTriangle size={13} className="text-rose-600 dark:text-rose-400" />
+                          Como Está (Original Não Sanitizado)
+                        </span>
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-rose-200 dark:bg-rose-900 text-rose-900 dark:text-rose-200">
+                          Dados Expostos
+                        </span>
+                      </div>
 
-                  <div className="p-3 flex-1 overflow-y-auto max-h-80 font-mono text-xs">
-                    {comparisonTab === 'headers' && (
-                      <div className="space-y-1.5 divide-y divide-rose-200/50 dark:divide-rose-900/30">
-                        {comparisonHeaders.originalReq.length === 0 ? (
-                          <div className="p-4 text-center text-zinc-500">Sem cabeçalhos na requisição.</div>
-                        ) : (
+                      <div className="p-3 flex-1 overflow-x-auto overflow-y-auto max-h-[460px] font-mono text-xs">
+                        {comparisonTab === 'headers' && (
+                          <div className="space-y-1.5 divide-y divide-rose-200/50 dark:divide-rose-900/30">
+                            {comparisonHeaders.originalReq.length === 0 ? (
+                              <div className="p-6 text-center text-zinc-400">Sem cabeçalhos na requisição.</div>
+                            ) : (
+                              comparisonHeaders.originalReq.map((h, i) => (
+                                <div
+                                  key={i}
+                                  className={`pt-1.5 first:pt-0 flex items-start justify-between gap-2 p-1.5 rounded transition ${
+                                    h.removed
+                                      ? 'bg-rose-100/80 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800'
+                                      : ''
+                                  }`}
+                                >
+                                  <div className="min-w-0 flex-1 whitespace-pre-wrap break-all">
+                                    <span
+                                      className={`font-bold ${
+                                        h.removed ? 'text-rose-700 dark:text-rose-300' : 'text-zinc-700 dark:text-zinc-300'
+                                      }`}
+                                    >
+                                      {h.name}:
+                                    </span>{' '}
+                                    <span className="text-zinc-800 dark:text-zinc-300">{h.value}</span>
+                                  </div>
+                                  {h.removed && (
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider bg-rose-600 text-white shrink-0">
+                                      Expurgado
+                                    </span>
+                                  )}
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+
+                        {comparisonTab === 'body' && (
+                          <div>
+                            {comparisonBody.original ? (
+                              <pre className="text-zinc-800 dark:text-zinc-200 whitespace-pre overflow-x-auto leading-relaxed bg-white/70 dark:bg-black/40 p-3 rounded border border-rose-200 dark:border-rose-950">
+                                {comparisonBody.original}
+                              </pre>
+                            ) : (
+                              <div className="p-6 text-center text-zinc-400">Nenhum payload nesta requisição.</div>
+                            )}
+                          </div>
+                        )}
+
+                        {comparisonTab === 'url' && (
+                          <div className="p-3 bg-white/70 dark:bg-black/40 rounded border border-rose-200 dark:border-rose-950 break-all leading-relaxed text-zinc-800 dark:text-zinc-200">
+                            {comparisonUrl.original}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* RIGHT: SANITIZED (COMO IRÁ FICAR) */}
+                    <div className="border border-emerald-200 dark:border-emerald-950 rounded-lg overflow-hidden bg-emerald-50/20 dark:bg-emerald-950/10 flex flex-col shadow-2xs">
+                      <div className="px-3.5 py-2 bg-emerald-100/70 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-900/60 flex items-center justify-between text-xs font-semibold text-emerald-900 dark:text-emerald-200 select-none">
+                        <span className="flex items-center gap-1.5">
+                          <CheckCircle2 size={13} className="text-emerald-600 dark:text-emerald-400" />
+                          Como Irá Ficar (Sanitizado para Exportação)
+                        </span>
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-emerald-200 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-200">
+                          Protegido LGPD
+                        </span>
+                      </div>
+
+                      <div className="p-3 flex-1 overflow-x-auto overflow-y-auto max-h-[460px] font-mono text-xs">
+                        {comparisonTab === 'headers' && (
+                          <div className="space-y-1.5 divide-y divide-emerald-200/50 dark:divide-emerald-900/30">
+                            {comparisonHeaders.sanitizedReq.length === 0 ? (
+                              <div className="p-6 text-center text-zinc-400">Sem cabeçalhos restantes.</div>
+                            ) : (
+                              comparisonHeaders.sanitizedReq.map((h, i) => (
+                                <div key={i} className="pt-1.5 first:pt-0 flex items-start justify-between gap-2 p-1.5">
+                                  <div className="min-w-0 flex-1 whitespace-pre-wrap break-all">
+                                    <span className="font-bold text-emerald-800 dark:text-emerald-300">{h.name}:</span>{' '}
+                                    <span className="text-zinc-800 dark:text-zinc-300">{h.value}</span>
+                                  </div>
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-medium uppercase tracking-wider bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shrink-0">
+                                    Preservado
+                                  </span>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        )}
+
+                        {comparisonTab === 'body' && (
+                          <div>
+                            {comparisonBody.sanitized ? (
+                              <pre className="text-emerald-900 dark:text-emerald-300 whitespace-pre overflow-x-auto leading-relaxed bg-white/70 dark:bg-black/40 p-3 rounded border border-emerald-200 dark:border-emerald-950">
+                                {comparisonBody.sanitized}
+                              </pre>
+                            ) : (
+                              <div className="p-6 text-center text-zinc-400">Nenhum payload nesta requisição.</div>
+                            )}
+                          </div>
+                        )}
+
+                        {comparisonTab === 'url' && (
+                          <div className="p-3 bg-white/70 dark:bg-black/40 rounded border border-emerald-200 dark:border-emerald-950 break-all leading-relaxed text-emerald-900 dark:text-emerald-300 font-semibold">
+                            {comparisonUrl.sanitized}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* MODE 2: UNIFIED TABULAR DIFF WITH EXPLICIT HORIZONTAL SCROLL */
+                  <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-x-auto w-full">
+                    <table className="w-full text-left text-xs min-w-[880px] border-collapse font-sans">
+                      <thead>
+                        <tr className="bg-zinc-100 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider">
+                          <th className="py-2.5 px-3 w-48">Propriedade / Cabeçalho</th>
+                          <th className="py-2.5 px-3 min-w-[280px]">Original (Exposto)</th>
+                          <th className="py-2.5 px-3 min-w-[280px]">Sanitizado (Protegido)</th>
+                          <th className="py-2.5 px-3 w-32 text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800 font-mono text-xs">
+                        {comparisonTab === 'headers' &&
                           comparisonHeaders.originalReq.map((h, i) => (
-                            <div
+                            <tr
                               key={i}
-                              className={`pt-1.5 first:pt-0 flex items-start justify-between gap-2 p-1 rounded ${
-                                h.removed
-                                  ? 'bg-rose-100/80 dark:bg-rose-950/50 border border-rose-300 dark:border-rose-800'
-                                  : ''
-                              }`}
+                              className={h.removed ? 'bg-rose-50/40 dark:bg-rose-950/20' : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/40'}
                             >
-                              <div className="min-w-0 flex-1 truncate">
-                                <span className={`font-bold ${h.removed ? 'text-rose-700 dark:text-rose-300' : 'text-zinc-700 dark:text-zinc-300'}`}>
-                                  {h.name}:
-                                </span>{' '}
-                                <span className="text-zinc-800 dark:text-zinc-300 break-all">{h.value}</span>
-                              </div>
-                              {h.removed && (
-                                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider bg-rose-600 text-white shrink-0">
-                                  Expurgado
-                                </span>
-                              )}
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    )}
+                              <td className="py-2.5 px-3 align-top font-bold text-zinc-800 dark:text-zinc-200">
+                                {h.name}
+                              </td>
+                              <td className="py-2.5 px-3 align-top text-zinc-700 dark:text-zinc-300 break-all">
+                                {h.value}
+                              </td>
+                              <td className="py-2.5 px-3 align-top">
+                                {h.removed ? (
+                                  <span className="text-zinc-400 italic font-sans text-xs">[Removido / Excluído do HAR]</span>
+                                ) : (
+                                  <span className="text-emerald-700 dark:text-emerald-300 break-all">{h.value}</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 align-top text-center">
+                                {h.removed ? (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+                                    Expurgado
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                    Preservado
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
 
-                    {comparisonTab === 'body' && (
-                      <div>
-                        {comparisonBody.original ? (
-                          <pre className="text-zinc-800 dark:text-zinc-200 whitespace-pre-wrap break-all leading-relaxed bg-white/70 dark:bg-black/40 p-2.5 rounded border border-rose-200 dark:border-rose-950">
-                            {comparisonBody.original}
-                          </pre>
-                        ) : (
-                          <div className="p-6 text-center text-zinc-500">Nenhum payload nesta requisição.</div>
-                        )}
-                      </div>
-                    )}
-
-                    {comparisonTab === 'url' && (
-                      <div className="p-3 bg-white/70 dark:bg-black/40 rounded border border-rose-200 dark:border-rose-950 break-all leading-relaxed text-zinc-800 dark:text-zinc-200">
-                        {comparisonUrl.original}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* RIGHT: SANITIZED (COMO IRÁ FICAR) */}
-                <div className="border border-emerald-200 dark:border-emerald-950 rounded-lg overflow-hidden bg-emerald-50/30 dark:bg-emerald-950/10 flex flex-col">
-                  <div className="px-3.5 py-2.5 bg-emerald-100/70 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-900/60 flex items-center justify-between text-xs font-semibold text-emerald-900 dark:text-emerald-200">
-                    <span className="flex items-center gap-1.5">
-                      <CheckCircle2 size={14} className="text-emerald-600 dark:text-emerald-400" />
-                      Como Irá Ficar (Sanitizado para Exportação)
-                    </span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-200 dark:bg-emerald-900 text-emerald-900 dark:text-emerald-200">
-                      100% Protegido LGPD
-                    </span>
-                  </div>
-
-                  <div className="p-3 flex-1 overflow-y-auto max-h-80 font-mono text-xs">
-                    {comparisonTab === 'headers' && (
-                      <div className="space-y-1.5 divide-y divide-emerald-200/50 dark:divide-emerald-900/30">
-                        {comparisonHeaders.sanitizedReq.length === 0 ? (
-                          <div className="p-4 text-center text-zinc-500">Sem cabeçalhos restantes.</div>
-                        ) : (
-                          comparisonHeaders.sanitizedReq.map((h, i) => (
-                            <div key={i} className="pt-1.5 first:pt-0 flex items-start justify-between gap-2 p-1">
-                              <div className="min-w-0 flex-1 truncate">
-                                <span className="font-bold text-emerald-800 dark:text-emerald-300">{h.name}:</span>{' '}
-                                <span className="text-zinc-800 dark:text-zinc-300 break-all">{h.value}</span>
-                              </div>
-                              <span className="px-1.5 py-0.2 rounded text-[9px] font-medium uppercase tracking-wider bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shrink-0">
-                                Preservado
+                        {comparisonTab === 'url' && (
+                          <tr>
+                            <td className="py-3 px-3 align-top font-bold text-zinc-800 dark:text-zinc-200">URL Completa</td>
+                            <td className="py-3 px-3 align-top text-zinc-700 dark:text-zinc-300 break-all">
+                              {comparisonUrl.original}
+                            </td>
+                            <td className="py-3 px-3 align-top text-emerald-700 dark:text-emerald-300 break-all font-semibold">
+                              {comparisonUrl.sanitized}
+                            </td>
+                            <td className="py-3 px-3 align-top text-center">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                Higienizado
                               </span>
-                            </div>
-                          ))
+                            </td>
+                          </tr>
                         )}
-                      </div>
-                    )}
 
-                    {comparisonTab === 'body' && (
-                      <div>
-                        {comparisonBody.sanitized ? (
-                          <pre className="text-emerald-900 dark:text-emerald-300 whitespace-pre-wrap break-all leading-relaxed bg-white/70 dark:bg-black/40 p-2.5 rounded border border-emerald-200 dark:border-emerald-950">
-                            {comparisonBody.sanitized}
-                          </pre>
-                        ) : (
-                          <div className="p-6 text-center text-zinc-500">Nenhum payload nesta requisição.</div>
+                        {comparisonTab === 'body' && (
+                          <tr>
+                            <td className="py-3 px-3 align-top font-bold text-zinc-800 dark:text-zinc-200">Payload JSON</td>
+                            <td className="py-3 px-3 align-top text-zinc-700 dark:text-zinc-300 whitespace-pre overflow-x-auto max-h-60 block">
+                              {comparisonBody.original || 'Sem payload'}
+                            </td>
+                            <td className="py-3 px-3 align-top text-emerald-800 dark:text-emerald-300 whitespace-pre overflow-x-auto max-h-60 block">
+                              {comparisonBody.sanitized || 'Sem payload'}
+                            </td>
+                            <td className="py-3 px-3 align-top text-center">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                Mascarado
+                              </span>
+                            </td>
+                          </tr>
                         )}
-                      </div>
-                    )}
-
-                    {comparisonTab === 'url' && (
-                      <div className="p-3 bg-white/70 dark:bg-black/40 rounded border border-emerald-200 dark:border-emerald-950 break-all leading-relaxed text-emerald-900 dark:text-emerald-300 font-semibold">
-                        {comparisonUrl.sanitized}
-                      </div>
-                    )}
+                      </tbody>
+                    </table>
                   </div>
-                </div>
+                )}
               </div>
             </>
           )}
         </div>
       )}
 
-      {/* VIEW 2: RULES CONFIGURATION ("MOSTRAR REGRAS") */}
+      {/* VIEW 2: RULES CONFIGURATION ("CONFIGURAR REGRAS") */}
       {viewMode === 'rules' && (
         <div className="space-y-4 animate-in fade-in duration-150">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Headers Configuration */}
-            <div className="p-4 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 space-y-4 shadow-2xs">
+            <div className="p-4 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 space-y-3 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                  <Lock size={15} className="text-cyan-600 dark:text-cyan-400" />
-                  Regras: Cabeçalhos a Remover ({headersToRemove.length})
+                <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                  <Lock size={14} className="text-cyan-600 dark:text-cyan-400" />
+                  Cabeçalhos a Remover ({headersToRemove.length})
                 </span>
               </div>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
                 Cabeçalhos que serão expurgados das requisições e respostas antes do download.
               </p>
 
-              <div className="flex flex-wrap gap-1.5 min-h-[60px]">
+              <div className="flex flex-wrap gap-1.5 min-h-[50px] max-h-40 overflow-y-auto p-1 border border-zinc-100 dark:border-zinc-800/80 rounded bg-zinc-50/50 dark:bg-zinc-950/40">
                 {headersToRemove.map((header) => (
                   <span
                     key={header}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono bg-zinc-100 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 shadow-2xs"
                   >
                     <span>{header}</span>
                     <button
@@ -672,7 +812,7 @@ export const SanitizerTool: React.FC<ToolPluginContext> = ({ har, entries }) => 
                       className="text-zinc-400 hover:text-rose-500 transition"
                       title="Remover regra"
                     >
-                      <X size={12} />
+                      <X size={11} />
                     </button>
                   </span>
                 ))}
@@ -686,35 +826,35 @@ export const SanitizerTool: React.FC<ToolPluginContext> = ({ har, entries }) => 
                   value={customHeaderInput}
                   onChange={(e) => setCustomHeaderInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleAddHeader()}
-                  className="flex-1 px-3 py-1.5 text-xs font-mono bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-md text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-cyan-500"
+                  className="flex-1 px-2.5 py-1 text-xs font-mono bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-md text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-cyan-500"
                 />
                 <button
                   onClick={handleAddHeader}
-                  className="px-3 py-1.5 rounded-md text-xs font-semibold bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 flex items-center gap-1 transition"
+                  className="px-2.5 py-1 rounded-md text-xs font-semibold bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 flex items-center gap-1 transition"
                 >
-                  <Plus size={13} />
+                  <Plus size={12} />
                   <span>Adicionar</span>
                 </button>
               </div>
             </div>
 
             {/* Body Keys Configuration */}
-            <div className="p-4 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 space-y-4 shadow-2xs">
+            <div className="p-4 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 space-y-3 shadow-2xs">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                  <Eye size={15} className="text-emerald-600 dark:text-emerald-400" />
-                  Regras: Chaves do Body a Mascarar ({bodyKeysToRedact.length})
+                <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                  <Eye size={14} className="text-emerald-600 dark:text-emerald-400" />
+                  Chaves do Body a Mascarar ({bodyKeysToRedact.length})
                 </span>
               </div>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
                 Campos em payloads cujo valor será substituído por <code>"[REDACTED_LGPD]"</code>.
               </p>
 
-              <div className="flex flex-wrap gap-1.5 min-h-[60px]">
+              <div className="flex flex-wrap gap-1.5 min-h-[50px] max-h-40 overflow-y-auto p-1 border border-zinc-100 dark:border-zinc-800/80 rounded bg-zinc-50/50 dark:bg-zinc-950/40">
                 {bodyKeysToRedact.map((key) => (
                   <span
                     key={key}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono bg-zinc-100 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 shadow-2xs"
                   >
                     <span>{key}</span>
                     <button
@@ -722,7 +862,7 @@ export const SanitizerTool: React.FC<ToolPluginContext> = ({ har, entries }) => 
                       className="text-zinc-400 hover:text-rose-500 transition"
                       title="Remover chave"
                     >
-                      <X size={12} />
+                      <X size={11} />
                     </button>
                   </span>
                 ))}
@@ -736,13 +876,13 @@ export const SanitizerTool: React.FC<ToolPluginContext> = ({ har, entries }) => 
                   value={customBodyKeyInput}
                   onChange={(e) => setCustomBodyKeyInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleAddBodyKey()}
-                  className="flex-1 px-3 py-1.5 text-xs font-mono bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-md text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-cyan-500"
+                  className="flex-1 px-2.5 py-1 text-xs font-mono bg-zinc-50 dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded-md text-zinc-800 dark:text-zinc-200 focus:outline-none focus:border-cyan-500"
                 />
                 <button
                   onClick={handleAddBodyKey}
-                  className="px-3 py-1.5 rounded-md text-xs font-semibold bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 flex items-center gap-1 transition"
+                  className="px-2.5 py-1 rounded-md text-xs font-semibold bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 flex items-center gap-1 transition"
                 >
-                  <Plus size={13} />
+                  <Plus size={12} />
                   <span>Adicionar</span>
                 </button>
               </div>
@@ -750,11 +890,11 @@ export const SanitizerTool: React.FC<ToolPluginContext> = ({ har, entries }) => 
           </div>
 
           {/* Privacy Flags */}
-          <div className="p-4 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 space-y-3 shadow-2xs">
+          <div className="p-4 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/60 space-y-2 shadow-2xs">
             <span className="text-xs font-semibold uppercase tracking-wider text-zinc-700 dark:text-zinc-300 block">
               Flags de Higienização Global
             </span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
               <label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition">
                 <input
                   type="checkbox"

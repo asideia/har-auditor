@@ -13,6 +13,9 @@ import {
   Copy,
   Check,
   ExternalLink,
+  Table,
+  LayoutList,
+  ArrowRightLeft,
 } from 'lucide-react';
 
 export type AuditSeverity = 'Alta' | 'Média' | 'Baixa';
@@ -40,79 +43,27 @@ export const SecurityAuditTool: React.FC<ToolPluginContext> = ({
   entries,
   onSelectEntry,
 }) => {
-  const [selectedSeverity, setSelectedSeverity] = useState<AuditSeverity | 'Todas'>('Todas');
+  const [selectedSeverity, setSelectedSeverity] = useState<string>('Todas');
   const [selectedCategory, setSelectedCategory] = useState<string>('Todas');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
 
-  // Comprehensive security scan over all entries
+  // Comprehensive OWASP heuristic security scanner across entries
   const findings = useMemo(() => {
+    if (!entries || entries.length === 0) return [];
+
     const list: AuditFinding[] = [];
 
     entries.forEach((entry) => {
-      const { request, response, parsedUrl, id, index } = entry;
+      const { id, index, request, response, parsedUrl } = entry;
       const urlStr = request.url || '';
+      const headersMap = new Map<string, string>();
+      (response.headers || []).forEach((h) => {
+        if (h.name) headersMap.set(h.name.toLowerCase(), h.value);
+      });
 
-      // 1. JWT Exposto em Query Params ou URL
-      const hasJwtInUrl = JWT_REGEX.test(urlStr);
-      if (hasJwtInUrl) {
-        list.push({
-          id: `${id}-jwt-url`,
-          entryId: id,
-          entryIndex: index,
-          url: urlStr,
-          method: request.method,
-          severity: 'Alta',
-          category: 'JWT Exposto',
-          title: 'Token JWT Exposto em Parâmetros de URL',
-          description: 'Um token JWT estruturado foi identificado diretamente na URL da requisição. URLs ficam gravadas em logs de proxy, CDN, histórico do navegador e no header Referer.',
-          evidence: urlStr.length > 90 ? `${urlStr.slice(0, 85)}...` : urlStr,
-          recommendation: 'Transmita tokens JWT exclusivamente no cabeçalho "Authorization: Bearer <token>" ou no corpo de requisições HTTPS POST.',
-          cwe: 'CWE-598: Information Exposure Through Query Strings in GET Request',
-        });
-      }
-
-      // 2. Detecção de PIIs (LGPD): Emails e CPFs em URLs e Corpos
-      // Email in URL search
-      const emailsInUrl = urlStr.match(EMAIL_REGEX);
-      if (emailsInUrl && emailsInUrl.length > 0) {
-        list.push({
-          id: `${id}-email-url`,
-          entryId: id,
-          entryIndex: index,
-          url: urlStr,
-          method: request.method,
-          severity: 'Média',
-          category: 'PII / LGPD',
-          title: 'Endereço de E-mail (PII) Exposto na URL',
-          description: `E-mail identificado nos parâmetros da URL: "${emailsInUrl[0]}". Viola boas práticas de privacidade da LGPD.`,
-          evidence: emailsInUrl[0],
-          recommendation: 'Substitua identificadores diretos por UUIDs opacos ou envie dados pessoais via corpo criptografado.',
-          cwe: 'CWE-359: Exposure of Private Personal Information (PII)',
-        });
-      }
-
-      // CPF in Request Body or URL
-      const reqBodyText = request.postData?.text || '';
-      const cpfsFound = (urlStr + ' ' + reqBodyText).match(CPF_FORMATTED_REGEX);
-      if (cpfsFound && cpfsFound.length > 0) {
-        list.push({
-          id: `${id}-cpf-pii`,
-          entryId: id,
-          entryIndex: index,
-          url: urlStr,
-          method: request.method,
-          severity: 'Alta',
-          category: 'PII / LGPD',
-          title: 'CPF Identificado em Texto Claro',
-          description: `Número de documento (CPF) trafegado na requisição: "${cpfsFound[0]}".`,
-          evidence: cpfsFound[0],
-          recommendation: 'Assegure anonimização, mascaramento de dados (data masking) e transmissão restrita sob TLS com controle de acesso rigoroso.',
-          cwe: 'CWE-359: Privacy Violation: Sensitive Data Exposure',
-        });
-      }
-
-      // Check HTTP transport
+      // 1. Transporte HTTP em texto claro
       if (parsedUrl.protocol === 'http:') {
         list.push({
           id: `${id}-cleartext-http`,
@@ -122,24 +73,58 @@ export const SecurityAuditTool: React.FC<ToolPluginContext> = ({
           method: request.method,
           severity: 'Alta',
           category: 'Transporte HTTP',
-          title: 'Tráfego sem Criptografia TLS (HTTP Claro)',
-          description: 'A requisição e seus dados trafegaram em HTTP sem proteção contra interceptação na rede (MitM).',
-          evidence: `Protocolo: ${parsedUrl.protocol}//`,
-          recommendation: 'Habilite redirecionamento forçado para HTTPS e implemente HSTS.',
+          title: 'Transmissão em Texto Claro (HTTP sem TLS)',
+          description: `O tráfego trafega desprotegido para ${parsedUrl.hostname}. Dados de sessão e credenciais podem ser interceptados em redes públicas.`,
+          evidence: urlStr,
+          recommendation: 'Force HTTPS em todas as comunicações e habilite HSTS.',
           cwe: 'CWE-319: Cleartext Transmission of Sensitive Information',
         });
       }
 
-      // 3. Headers de Segurança Ausentes
-      const headersMap = new Map<string, string>();
-      (response.headers || []).forEach((h) => {
-        if (h && h.name) headersMap.set(h.name.toLowerCase(), h.value);
+      // 2. JWT ou Bearer exposto na Query String
+      (request.queryString || []).forEach((q) => {
+        if (JWT_REGEX.test(q.value) || ['token', 'jwt', 'auth', 'access_token', 'bearer'].includes(q.name.toLowerCase())) {
+          list.push({
+            id: `${id}-jwt-query-${q.name}`,
+            entryId: id,
+            entryIndex: index,
+            url: urlStr,
+            method: request.method,
+            severity: 'Alta',
+            category: 'JWT Exposto',
+            title: `Token de Autenticação Exposto na Query String (${q.name})`,
+            description: `O parâmetro "${q.name}" envia credenciais na URL. URLs ficam salvas em logs de servidores proxy, histórico do navegador e cabeçalhos Referer.`,
+            evidence: `${q.name}=${q.value.slice(0, 16)}...`,
+            recommendation: "Transmita tokens sensíveis via cabeçalho 'Authorization: Bearer <token>' ou no corpo POST cifrado.",
+            cwe: 'CWE-598: Use of GET Request Method With Sensitive Query Strings',
+          });
+        }
       });
 
+      // 3. PII / LGPD em texto claro na URL ou resposta
+      const urlMatchesEmail = urlStr.match(EMAIL_REGEX);
+      const urlMatchesCpf = urlStr.match(CPF_FORMATTED_REGEX);
+      if (urlMatchesEmail || urlMatchesCpf) {
+        list.push({
+          id: `${id}-pii-url`,
+          entryId: id,
+          entryIndex: index,
+          url: urlStr,
+          method: request.method,
+          severity: 'Alta',
+          category: 'PII / LGPD',
+          title: 'Dado Pessoal Sensível (Email / CPF) Vazado na URL',
+          description: 'Identificador direto exposto na query string ou path. Infringe princípios da LGPD e OWASP API Security.',
+          evidence: urlMatchesEmail ? urlMatchesEmail[0] : urlMatchesCpf?.[0] || 'Dado pessoal em URL',
+          recommendation: 'Substitua identificadores diretos por UUIDs opacos ou envie dados pessoais via corpo criptografado.',
+          cwe: 'CWE-359: Exposure of Private Personal Information (PII)',
+        });
+      }
+
+      // Headers de Segurança ausentes em documentos HTML
       const mime = (response.content?.mimeType || '').toLowerCase();
       const isHtml = mime.includes('text/html');
 
-      // CSP ausente em documentos
       if (isHtml && !headersMap.has('content-security-policy')) {
         list.push({
           id: `${id}-missing-csp`,
@@ -286,6 +271,19 @@ export const SecurityAuditTool: React.FC<ToolPluginContext> = ({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const getSeverityBadge = (severity: AuditSeverity) => {
+    const badges = {
+      Alta: 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800',
+      Média: 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800',
+      Baixa: 'bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300 border-sky-300 dark:border-sky-800',
+    };
+    return (
+      <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase border whitespace-nowrap ${badges[severity]}`}>
+        {severity}
+      </span>
+    );
+  };
+
   return (
     <div className="flex flex-col h-full bg-white dark:bg-zinc-950 overflow-y-auto p-5 space-y-6 transition-colors font-sans">
       {/* Title */}
@@ -391,7 +389,7 @@ export const SecurityAuditTool: React.FC<ToolPluginContext> = ({
         </div>
 
         <div className="flex items-center gap-2 overflow-x-auto py-1">
-          <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">Categoria:</span>
+          <span className="text-xs text-zinc-500 dark:text-zinc-400 font-medium whitespace-nowrap">Categoria:</span>
           {[
             'Todas',
             'JWT Exposto',
@@ -404,7 +402,7 @@ export const SecurityAuditTool: React.FC<ToolPluginContext> = ({
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              className={`px-2.5 py-1 rounded text-xs transition ${
+              className={`px-2.5 py-1 rounded text-xs transition whitespace-nowrap ${
                 selectedCategory === cat
                   ? 'bg-zinc-800 dark:bg-zinc-700 text-white font-medium shadow-2xs'
                   : 'bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 border border-zinc-200 dark:border-zinc-800'
@@ -416,87 +414,249 @@ export const SecurityAuditTool: React.FC<ToolPluginContext> = ({
         </div>
       </div>
 
-      {/* Findings Table */}
-      <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden bg-white dark:bg-zinc-900/40 shadow-xs">
-        <div className="px-4 py-2.5 bg-zinc-100 dark:bg-zinc-900/80 border-b border-zinc-200 dark:border-zinc-800 flex justify-between items-center text-xs text-zinc-600 dark:text-zinc-400 font-medium">
-          <span>Relatório de Alertas ({filteredFindings.length} encontrados)</span>
-          <span className="text-[11px] text-zinc-500">Clique na seta ou na linha para inspecionar</span>
+      {/* Findings Area Header with View Switcher */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+              Relatório de Alertas ({filteredFindings.length} encontrados)
+            </span>
+            <span className="inline-flex items-center gap-1 text-[11px] text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-200 dark:border-cyan-800 font-medium">
+              <ArrowRightLeft size={11} />
+              Barra de rolagem horizontal ativa
+            </span>
+          </div>
+
+          {/* View Mode Toggle */}
+          <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-900 p-1 rounded-md border border-zinc-200 dark:border-zinc-800 text-xs">
+            <button
+              onClick={() => setViewMode('table')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded transition text-xs ${
+                viewMode === 'table'
+                  ? 'bg-white dark:bg-zinc-800 text-cyan-700 dark:text-cyan-300 font-medium shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+              }`}
+              title="Visualização em Tabela com Rolagem Horizontal"
+            >
+              <Table size={13} />
+              <span>Tabela Forense</span>
+            </button>
+            <button
+              onClick={() => setViewMode('cards')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded transition text-xs ${
+                viewMode === 'cards'
+                  ? 'bg-white dark:bg-zinc-800 text-cyan-700 dark:text-cyan-300 font-medium shadow-xs'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+              }`}
+              title="Visualização em Cartões Detalhados"
+            >
+              <LayoutList size={13} />
+              <span>Cartões Detalhados</span>
+            </button>
+          </div>
         </div>
 
-        {filteredFindings.length === 0 ? (
-          <div className="p-12 text-center text-zinc-500">
-            <CheckCircle2 size={36} className="mx-auto text-emerald-500 mb-2" />
-            <p className="font-semibold text-zinc-800 dark:text-zinc-200">Nenhuma inconformidade encontrada para este filtro.</p>
-            <p className="text-xs text-zinc-400 mt-1">Nenhum alerta reportado nesta categoria.</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-zinc-200 dark:divide-zinc-800/60">
-            {filteredFindings.map((item) => {
-              const sevBadge = {
-                Alta: 'bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300 border-rose-300 dark:border-rose-800',
-                Média: 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800',
-                Baixa: 'bg-sky-100 dark:bg-sky-950 text-sky-800 dark:text-sky-300 border-sky-300 dark:border-sky-800',
-              }[item.severity];
-
-              return (
-                <div
-                  key={item.id}
-                  onClick={() => onSelectEntry(item.entryId)}
-                  className="p-4 hover:bg-zinc-50 dark:hover:bg-zinc-900/60 cursor-pointer transition space-y-2 group"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase border ${sevBadge}`}>
-                        {item.severity}
-                      </span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-                        {item.category}
-                      </span>
-                      <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">{item.title}</h3>
-                    </div>
-
-                    <div className="flex items-center gap-2 text-xs text-cyan-600 dark:text-cyan-400 group-hover:translate-x-1 transition-transform font-medium">
-                      <span>Inspecionar Req #{item.entryIndex + 1}</span>
-                      <ChevronRight size={14} />
-                    </div>
-                  </div>
-
-                  <div className="font-mono text-xs text-zinc-600 dark:text-zinc-400 truncate bg-zinc-100 dark:bg-zinc-950 p-1.5 rounded border border-zinc-200 dark:border-zinc-900 flex items-center justify-between">
-                    <div className="truncate flex-1">
-                      <span className="text-cyan-700 dark:text-cyan-400 font-bold mr-2">{item.method}</span>
-                      <span>{item.url}</span>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        copyText(item.url, item.id);
-                      }}
-                      className="ml-2 p-1 hover:text-zinc-900 dark:hover:text-zinc-100 text-zinc-400 transition"
-                      title="Copiar URL"
+        {/* Horizontal Scroll Table / DataGrid Container */}
+        <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden bg-white dark:bg-zinc-900/40 shadow-xs">
+          {filteredFindings.length === 0 ? (
+            <div className="p-12 text-center text-zinc-500">
+              <CheckCircle2 size={36} className="mx-auto text-emerald-500 mb-2" />
+              <p className="font-semibold text-zinc-800 dark:text-zinc-200">
+                Nenhuma inconformidade encontrada para este filtro.
+              </p>
+              <p className="text-xs text-zinc-400 mt-1">Nenhum alerta reportado nesta categoria.</p>
+            </div>
+          ) : viewMode === 'table' ? (
+            /* TABLE MODE: Explicit Horizontal Scroll */
+            <div className="overflow-x-auto w-full max-w-full">
+              <table className="w-full text-left text-xs min-w-[1360px] border-collapse">
+                <thead>
+                  <tr className="bg-zinc-100 dark:bg-zinc-900/90 border-b border-zinc-200 dark:border-zinc-800 text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider select-none">
+                    <th className="py-2.5 px-3 w-28 whitespace-nowrap">Severidade</th>
+                    <th className="py-2.5 px-3 w-36 whitespace-nowrap">Categoria</th>
+                    <th className="py-2.5 px-3 w-72 whitespace-nowrap">Vulnerabilidade / Título</th>
+                    <th className="py-2.5 px-3 w-80 whitespace-nowrap">Método &amp; Endpoint Alvo</th>
+                    <th className="py-2.5 px-3 w-72 whitespace-nowrap">Evidência Forense</th>
+                    <th className="py-2.5 px-3 w-48 whitespace-nowrap">CWE / Referência</th>
+                    <th className="py-2.5 px-3 min-w-[280px]">Recomendação Técnica</th>
+                    <th className="py-2.5 px-3 w-28 text-center whitespace-nowrap sticky right-0 bg-zinc-100 dark:bg-zinc-900/95 shadow-xs">
+                      Ação
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-sans">
+                  {filteredFindings.map((item) => (
+                    <tr
+                      key={item.id}
+                      onClick={() => onSelectEntry(item.entryId)}
+                      className="hover:bg-cyan-50/50 dark:hover:bg-zinc-900/70 transition-colors cursor-pointer group"
                     >
-                      {copiedId === item.id ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
-                    </button>
-                  </div>
+                      {/* Severidade */}
+                      <td className="py-3 px-3 align-top whitespace-nowrap">
+                        {getSeverityBadge(item.severity)}
+                      </td>
 
-                  <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">{item.description}</p>
+                      {/* Categoria */}
+                      <td className="py-3 px-3 align-top whitespace-nowrap">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
+                          {item.category}
+                        </span>
+                      </td>
 
-                  {item.evidence && (
-                    <div className="text-xs font-mono text-amber-800 dark:text-amber-300/90 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 p-2 rounded break-all">
-                      Evidência: {item.evidence}
+                      {/* Título & Descrição */}
+                      <td className="py-3 px-3 align-top max-w-[280px]">
+                        <div className="font-bold text-zinc-900 dark:text-zinc-100 leading-snug">
+                          {item.title}
+                        </div>
+                        <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 line-clamp-2">
+                          {item.description}
+                        </div>
+                      </td>
+
+                      {/* Endpoint / URL */}
+                      <td className="py-3 px-3 align-top max-w-[320px]">
+                        <div className="font-mono text-[11px] text-zinc-800 dark:text-zinc-300 bg-zinc-50 dark:bg-zinc-950 p-1.5 rounded border border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-1.5">
+                          <span className="font-bold text-cyan-700 dark:text-cyan-400 shrink-0">
+                            {item.method}
+                          </span>
+                          <span className="truncate flex-1" title={item.url}>
+                            {item.url}
+                          </span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              copyText(item.url, item.id);
+                            }}
+                            className="p-1 hover:text-zinc-900 dark:hover:text-zinc-100 text-zinc-400 transition shrink-0"
+                            title="Copiar URL"
+                          >
+                            {copiedId === item.id ? (
+                              <Check size={12} className="text-emerald-500" />
+                            ) : (
+                              <Copy size={12} />
+                            )}
+                          </button>
+                        </div>
+                      </td>
+
+                      {/* Evidência */}
+                      <td className="py-3 px-3 align-top max-w-[280px]">
+                        {item.evidence ? (
+                          <div className="text-[11px] font-mono text-amber-800 dark:text-amber-300/90 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 p-1.5 rounded truncate" title={item.evidence}>
+                            {item.evidence}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-zinc-400 font-mono">Sem evidência direta</span>
+                        )}
+                      </td>
+
+                      {/* CWE */}
+                      <td className="py-3 px-3 align-top max-w-[190px]">
+                        <span className="text-[11px] font-mono text-zinc-600 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-200 dark:border-zinc-700 block truncate" title={item.cwe}>
+                          {item.cwe || 'OWASP Checklist'}
+                        </span>
+                      </td>
+
+                      {/* Recomendação */}
+                      <td className="py-3 px-3 align-top">
+                        <div className="text-[11px] text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/20 p-1.5 rounded border border-emerald-200 dark:border-emerald-900/40 leading-snug">
+                          {item.recommendation}
+                        </div>
+                      </td>
+
+                      {/* Ação (Inspecionar) */}
+                      <td className="py-3 px-3 align-top text-center sticky right-0 bg-white dark:bg-zinc-900/95 shadow-xs">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectEntry(item.entryId);
+                          }}
+                          title="Abrir detalhes forenses completos desta requisição no Inspetor de Requisições"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-cyan-700 dark:text-cyan-300 bg-cyan-50 dark:bg-cyan-950/70 hover:bg-cyan-100 dark:hover:bg-cyan-900 rounded-md border border-cyan-300 dark:border-cyan-800 transition whitespace-nowrap shadow-2xs"
+                        >
+                          <span>Inspecionar Req #{item.entryIndex + 1}</span>
+                          <ChevronRight size={13} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            /* CARDS MODE: Wrapped in horizontal scroll container */
+            <div className="overflow-x-auto w-full p-4 space-y-3">
+              <div className="min-w-[700px] space-y-3">
+                {filteredFindings.map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() => onSelectEntry(item.entryId)}
+                    className="p-4 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-950/40 hover:bg-zinc-50 dark:hover:bg-zinc-900/60 cursor-pointer transition space-y-2 group shadow-2xs"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        {getSeverityBadge(item.severity)}
+                        <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
+                          {item.category}
+                        </span>
+                        <h3 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
+                          {item.title}
+                        </h3>
+                      </div>
+
+                      <div className="flex items-center gap-2 text-xs text-cyan-600 dark:text-cyan-400 group-hover:translate-x-1 transition-transform font-medium">
+                        <span>Inspecionar Req #{item.entryIndex + 1}</span>
+                        <ChevronRight size={14} />
+                      </div>
                     </div>
-                  )}
 
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-zinc-100 dark:border-zinc-800/60 text-xs">
-                    <span className="text-zinc-500 font-mono text-[11px]">{item.cwe || 'Auditoria Automatizada'}</span>
-                    <div className="text-emerald-700 dark:text-emerald-400 font-medium text-xs">
-                      <strong>Recomendação:</strong> {item.recommendation}
+                    <div className="font-mono text-xs text-zinc-600 dark:text-zinc-400 truncate bg-zinc-100 dark:bg-zinc-950 p-1.5 rounded border border-zinc-200 dark:border-zinc-900 flex items-center justify-between">
+                      <div className="truncate flex-1">
+                        <span className="text-cyan-700 dark:text-cyan-400 font-bold mr-2">
+                          {item.method}
+                        </span>
+                        <span>{item.url}</span>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copyText(item.url, item.id);
+                        }}
+                        className="ml-2 p-1 hover:text-zinc-900 dark:hover:text-zinc-100 text-zinc-400 transition"
+                        title="Copiar URL"
+                      >
+                        {copiedId === item.id ? (
+                          <Check size={12} className="text-emerald-500" />
+                        ) : (
+                          <Copy size={12} />
+                        )}
+                      </button>
+                    </div>
+
+                    <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed">
+                      {item.description}
+                    </p>
+
+                    {item.evidence && (
+                      <div className="text-xs font-mono text-amber-800 dark:text-amber-300/90 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 p-2 rounded break-all">
+                        Evidência: {item.evidence}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-zinc-100 dark:border-zinc-800/60 text-xs">
+                      <span className="text-zinc-500 font-mono text-[11px]">
+                        {item.cwe || 'Auditoria Automatizada'}
+                      </span>
+                      <div className="text-emerald-700 dark:text-emerald-400 font-medium text-xs">
+                        <strong>Recomendação:</strong> {item.recommendation}
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
