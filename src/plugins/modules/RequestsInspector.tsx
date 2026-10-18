@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type { ToolPluginContext } from '../../types/plugin.ts';
 import type { EnrichedHarEntry } from '../../types/har.ts';
 import {
@@ -25,7 +25,14 @@ import {
   FileSearch,
   Activity,
   Layers,
+  Maximize2,
+  Minimize2,
+  GripVertical,
+  Image as ImageIcon,
 } from 'lucide-react';
+import { PayloadViewer } from '../../components/payload/PayloadViewer.tsx';
+import { ResponseMediaPreview } from '../../components/payload/ResponseMediaPreview.tsx';
+import { ReplayExportDropdown } from '../../components/payload/ReplayExportDropdown.tsx';
 
 type SortField = 'status' | 'method' | 'datetime' | 'url' | 'domain' | 'size' | 'time' | 'alerts';
 type SortOrder = 'asc' | 'desc';
@@ -80,6 +87,56 @@ export const formatDateDay = (isoString?: string): string => {
   }
 };
 
+export const MiniWaterfall: React.FC<{ entry: EnrichedHarEntry }> = ({ entry }) => {
+  const total = Math.max(1, entry.time || 1);
+  const blocked = Math.max(0, entry.timings?.blocked ?? 0);
+  const dns = Math.max(0, entry.timings?.dns ?? 0);
+  const connect = Math.max(0, entry.timings?.connect ?? 0);
+  const send = Math.max(0, entry.timings?.send ?? 0);
+  const wait = Math.max(0, entry.timings?.wait ?? 0); // TTFB
+  const receive = Math.max(0, entry.timings?.receive ?? 0); // Download
+
+  const pBlocked = Math.min(100, (blocked / total) * 100);
+  const pDns = Math.min(100, (dns / total) * 100);
+  const pConnect = Math.min(100, (connect / total) * 100);
+  const pSend = Math.min(100, (send / total) * 100);
+  const pWait = Math.min(100, (wait / total) * 100);
+  const pReceive = Math.min(100, (receive / total) * 100);
+
+  const tooltipParts = [
+    `Tempo Total: ${Math.round(total)}ms`,
+    dns > 0 ? `• DNS Lookup: ${Math.round(dns)}ms` : null,
+    connect > 0 ? `• Conexão/TLS: ${Math.round(connect)}ms` : null,
+    send > 0 ? `• Envio (Send): ${Math.round(send)}ms` : null,
+    wait > 0 ? `• Espera / TTFB: ${Math.round(wait)}ms` : null,
+    receive > 0 ? `• Download do Conteúdo: ${Math.round(receive)}ms` : null,
+    blocked > 0 ? `• Fila / Bloqueado: ${Math.round(blocked)}ms` : null,
+  ].filter(Boolean).join('\n');
+
+  return (
+    <div className="flex flex-col items-end gap-1 w-full pl-1 select-none" title={tooltipParts}>
+      <span
+        className={`font-mono text-[11px] leading-tight ${
+          entry.time > 1000
+            ? 'text-amber-600 dark:text-amber-400 font-bold'
+            : 'text-zinc-700 dark:text-zinc-300 font-medium'
+        }`}
+      >
+        {Math.round(entry.time)} ms
+      </span>
+      {/* Mini-Waterfall Progress Bar */}
+      <div className="w-full max-w-[120px] h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden flex shadow-2xs">
+        {blocked > 0 && <div style={{ width: `${Math.max(pBlocked, 2)}%` }} className="bg-zinc-400 dark:bg-zinc-500 h-full shrink-0" />}
+        {dns > 0 && <div style={{ width: `${Math.max(pDns, 3)}%` }} className="bg-sky-500 h-full shrink-0" />}
+        {connect > 0 && <div style={{ width: `${Math.max(pConnect, 3)}%` }} className="bg-purple-500 h-full shrink-0" />}
+        {send > 0 && <div style={{ width: `${Math.max(pSend, 2)}%` }} className="bg-indigo-400 h-full shrink-0" />}
+        {wait > 0 && <div style={{ width: `${Math.max(pWait, 3)}%` }} className="bg-amber-500 h-full shrink-0" />}
+        {receive > 0 && <div style={{ width: `${Math.max(pReceive, 3)}%` }} className="bg-emerald-500 h-full shrink-0" />}
+      </div>
+    </div>
+  );
+};
+
 export const RequestsInspector: React.FC<ToolPluginContext> = ({
   entries,
   selectedEntryId,
@@ -91,7 +148,7 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
   const [filterType, setFilterType] = useState<string>('all');
   const [onlyErrors, setOnlyErrors] = useState(false);
   const [onlySecurityIssues, setOnlySecurityIssues] = useState(false);
-  const [activeTab, setActiveTab] = useState<'headers' | 'payload' | 'cookies' | 'timings' | 'security'>('headers');
+  const [activeTab, setActiveTab] = useState<'headers' | 'payload' | 'preview' | 'cookies' | 'timings' | 'security'>('headers');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   // 1. Busca Global em Profundidade (Full-Text Search)
@@ -117,6 +174,13 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
   // Column filter row state
   const [showColumnFilters, setShowColumnFilters] = useState(false);
   const [colFilters, setColFilters] = useState<ColumnFilters>(initialColumnFilters);
+
+  // Ergonomia Forense: Split-Pane Redimensionável & Tela Cheia
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [tableWidthPercent, setTableWidthPercent] = useState<number>(50);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [isDetailMaximized, setIsDetailMaximized] = useState<boolean>(false);
 
   // Domain statistics for quick pills
   const domainStats = useMemo(() => {
@@ -519,6 +583,106 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
     [entries, selectedEntryId]
   );
 
+  // Split-Pane Resizing Handlers
+  const handleMouseDownDivider = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      if (!containerRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const newPercent = ((moveEvent.clientX - rect.left) / rect.width) * 100;
+      // Clamp between 25% and 75%
+      const clamped = Math.min(75, Math.max(25, newPercent));
+      setTableWidthPercent(clamped);
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  // Forensic Keyboard Navigation & Shortcuts (↑ / ↓, Esc, /, F)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const tagName = (activeEl?.tagName || '').toLowerCase();
+      const isInput = tagName === 'input' || tagName === 'textarea' || tagName === 'select';
+
+      // 1. Esc: Fecha o painel lateral ou sai do modo tela cheia
+      if (e.key === 'Escape') {
+        if (isInput) {
+          (activeEl as HTMLElement)?.blur();
+          return;
+        }
+        if (isDetailMaximized) {
+          setIsDetailMaximized(false);
+          return;
+        }
+        if (selectedEntryId) {
+          onSelectEntry(null);
+          return;
+        }
+      }
+
+      // Se o analista estiver digitando em campo de texto, não dispara atalhos de navegação
+      if (isInput) return;
+
+      // 2. '/' : Foca no campo de busca instantaneamente
+      if (e.key === '/') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+
+      // 3. 'F' ou 'f' : Alterna modo Tela Cheia do painel de detalhes
+      if ((e.key === 'f' || e.key === 'F') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (selectedEntryId) {
+          e.preventDefault();
+          setIsDetailMaximized((prev) => !prev);
+        }
+        return;
+      }
+
+      // 4. Setas (↑ / ↓) : Navega sequencialmente entre as requisições da tabela
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (sortedEntries.length === 0) return;
+
+        const currentIndex = sortedEntries.findIndex((ent) => ent.id === selectedEntryId);
+        let nextIndex = 0;
+
+        if (e.key === 'ArrowDown') {
+          nextIndex = currentIndex === -1 ? 0 : Math.min(sortedEntries.length - 1, currentIndex + 1);
+        } else {
+          nextIndex = currentIndex === -1 ? sortedEntries.length - 1 : Math.max(0, currentIndex - 1);
+        }
+
+        const nextEntry = sortedEntries[nextIndex];
+        if (nextEntry) {
+          onSelectEntry(nextEntry.id);
+          // Rola automaticamente a linha selecionada para a área visível
+          setTimeout(() => {
+            const rowEl = document.querySelector(`[data-entry-id="${nextEntry.id}"]`);
+            if (rowEl) {
+              rowEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
+          }, 20);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [sortedEntries, selectedEntryId, isDetailMaximized, onSelectEntry]);
+
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
     setCopiedKey(key);
@@ -629,6 +793,7 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 dark:text-zinc-500" size={14} />
             <input
+              ref={searchInputRef}
               type="text"
               placeholder={
                 deepSearch
@@ -639,13 +804,21 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-8 py-1.5 bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-800 rounded-md text-xs text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 dark:placeholder-zinc-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/40 font-mono transition shadow-2xs"
             />
-            {searchQuery && (
+            {searchQuery ? (
               <button
                 onClick={() => setSearchQuery('')}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                title="Limpar busca"
               >
                 <X size={13} />
               </button>
+            ) : (
+              <span
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-[10px] font-mono text-zinc-400 border border-zinc-200 dark:border-zinc-700 pointer-events-none select-none"
+                title="Atalho: pressione '/' para pesquisar"
+              >
+                /
+              </span>
             )}
           </div>
 
@@ -697,6 +870,23 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
 
         {/* Quick Summary / Active Count & Reset */}
         <div className="flex items-center gap-2">
+          {/* Forensic Shortcuts Helper */}
+          <div
+            className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-[11px] font-mono text-zinc-500 select-none shadow-2xs"
+            title="Atalhos Forenses de Teclado disponíveis no Inspetor"
+          >
+            <span className="px-1 py-0.2 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-[10px]">↑↓</span>
+            <span>Navegar</span>
+            <span className="text-zinc-300 dark:text-zinc-700">·</span>
+            <span className="px-1 py-0.2 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-[10px]">/</span>
+            <span>Buscar</span>
+            <span className="text-zinc-300 dark:text-zinc-700">·</span>
+            <span className="px-1 py-0.2 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-[10px]">Esc</span>
+            <span>Fechar</span>
+            <span className="text-zinc-300 dark:text-zinc-700">·</span>
+            <span className="px-1 py-0.2 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold text-[10px]">F</span>
+            <span>Tela Cheia</span>
+          </div>
           {activeFiltersCount > 0 && (
             <button
               onClick={resetAllFilters}
@@ -892,12 +1082,22 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
         </div>
       )}
 
-      {/* 3. MAIN TABLE + DRAWER CONTAINER */}
-      <div className="flex flex-1 overflow-hidden relative">
+      {/* 3. MAIN TABLE + DRAWER CONTAINER (SPLIT-PANE REDIMENSIONÁVEL) */}
+      <div
+        ref={containerRef}
+        className={`flex flex-1 overflow-hidden relative ${isDragging ? 'select-none cursor-col-resize' : ''}`}
+      >
         {/* Requests Table */}
         <div
-          className={`flex-1 flex flex-col overflow-x-auto overflow-y-hidden transition-all duration-200 ${
-            selectedEntry ? 'w-1/2' : 'w-full'
+          style={{
+            width: selectedEntry && !isDetailMaximized ? `${tableWidthPercent}%` : undefined,
+          }}
+          className={`flex flex-col overflow-x-auto overflow-y-hidden border-r border-zinc-200 dark:border-zinc-800 transition-all ${
+            isDetailMaximized
+              ? 'hidden'
+              : selectedEntry
+              ? 'shrink-0'
+              : 'w-full flex-1'
           }`}
         >
           <div className="min-w-[960px] flex-1 flex flex-col h-full overflow-hidden">
@@ -939,7 +1139,7 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
               {/* Col 4: Path / Endpoint */}
               <div
                 onClick={() => handleSortToggle('url')}
-                className="col-span-3 flex items-center justify-between cursor-pointer hover:text-cyan-600 dark:hover:text-cyan-400 group"
+                className="col-span-2 flex items-center justify-between cursor-pointer hover:text-cyan-600 dark:hover:text-cyan-400 group"
                 title="Clique para ordenar por Caminho / Endpoint"
               >
                 <span>Caminho / Endpoint</span>
@@ -966,14 +1166,22 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
                 {renderSortIcon('size')}
               </div>
 
-              {/* Col 7: Time */}
+              {/* Col 7: Time com Mini-Waterfall Integrado */}
               <div
                 onClick={() => handleSortToggle('time')}
-                className="col-span-1 flex items-center justify-end gap-1 cursor-pointer hover:text-cyan-600 dark:hover:text-cyan-400 group text-right"
-                title="Clique para ordenar por Tempo de Resposta"
+                className="col-span-2 flex flex-col justify-center cursor-pointer hover:text-cyan-600 dark:hover:text-cyan-400 group text-right"
+                title="Clique para ordenar por Tempo de Resposta (Mini-Waterfall: DNS [Azul] | TLS [Roxo] | TTFB [Âmbar] | Download [Verde])"
               >
-                <span>Tempo</span>
-                {renderSortIcon('time')}
+                <div className="flex items-center justify-end gap-1">
+                  <span>Tempo / Latência</span>
+                  {renderSortIcon('time')}
+                </div>
+                <div className="flex items-center justify-end gap-1 text-[9px] font-mono text-zinc-400 group-hover:text-cyan-500 font-normal">
+                  <span className="text-sky-500">●DNS</span>
+                  <span className="text-purple-500">●TLS</span>
+                  <span className="text-amber-500">●TTFB</span>
+                  <span className="text-emerald-500">●Down</span>
+                </div>
               </div>
 
               {/* Col 8: Alerts */}
@@ -1042,7 +1250,7 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
                 </div>
 
                 {/* Filter: Path / Endpoint */}
-                <div className="col-span-3 relative">
+                <div className="col-span-2 relative">
                   <input
                     type="text"
                     placeholder="Filtrar rota (/api, etc)..."
@@ -1092,13 +1300,13 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
                 </div>
 
                 {/* Filter: Time */}
-                <div className="col-span-1">
+                <div className="col-span-2">
                   <select
                     value={colFilters.time}
                     onChange={(e) => setColFilters({ ...colFilters, time: e.target.value })}
                     className="w-full py-1 px-1 bg-white dark:bg-zinc-950 border border-zinc-300 dark:border-zinc-800 rounded text-[11px] font-mono focus:outline-none focus:border-cyan-500"
                   >
-                    <option value="all">Todos</option>
+                    <option value="all">Todos Tempos</option>
                     <option value=">200ms">&gt;200ms</option>
                     <option value=">500ms">&gt;500ms</option>
                     <option value=">1s">&gt;1s</option>
@@ -1145,6 +1353,7 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
                   return (
                     <div
                       key={entry.id}
+                      data-entry-id={entry.id}
                       onClick={() => onSelectEntry(isSelected ? null : entry.id)}
                       className={`grid grid-cols-12 gap-2 px-3 py-2 items-center cursor-pointer transition select-none ${
                         isSelected
@@ -1177,7 +1386,7 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
                       </div>
 
                       {/* Caminho / Endpoint */}
-                      <div className="col-span-3 truncate text-zinc-800 dark:text-zinc-200 font-sans" title={entry.request.url}>
+                      <div className="col-span-2 truncate text-zinc-800 dark:text-zinc-200 font-sans" title={entry.request.url}>
                         <div className="flex items-center gap-1.5 truncate">
                           <span className="font-mono text-zinc-900 dark:text-zinc-300 font-medium truncate">
                             {entry.parsedUrl.pathname || '/'}
@@ -1215,11 +1424,9 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
                         {formatBytes(entry.response.content?.size || entry.response.bodySize || 0)}
                       </div>
 
-                      {/* Tempo */}
-                      <div className="col-span-1 text-right text-zinc-600 dark:text-zinc-400 text-[11px]">
-                        <span className={entry.time > 1000 ? 'text-amber-600 font-bold' : ''}>
-                          {Math.round(entry.time)} ms
-                        </span>
+                      {/* Tempo com Mini-Waterfall Integrado */}
+                      <div className="col-span-2 text-right">
+                        <MiniWaterfall entry={entry} />
                       </div>
 
                       {/* Alertas */}
@@ -1264,15 +1471,50 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
                 </span>
               )}
             </div>
-            <span className="text-zinc-400 dark:text-zinc-500 font-mono">
-              Clique em qualquer linha para abrir a inspeção forense
-            </span>
+            <div className="flex items-center gap-2 text-zinc-400 dark:text-zinc-500 font-mono text-[10px]">
+              <span className="hidden md:inline">Atalhos:</span>
+              <span className="px-1 py-0.2 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold">↑↓</span>
+              <span>Navegar</span>
+              <span>·</span>
+              <span className="px-1 py-0.2 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold">/</span>
+              <span>Buscar</span>
+              <span>·</span>
+              <span className="px-1 py-0.2 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold">Esc</span>
+              <span>Fechar</span>
+              <span>·</span>
+              <span className="px-1 py-0.2 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-bold">F</span>
+              <span>Tela Cheia</span>
+            </div>
           </div>
         </div>
 
+        {/* Draggable Divider (Split-Pane) when drawer is open and not maximized */}
+        {selectedEntry && !isDetailMaximized && (
+          <div
+            onMouseDown={handleMouseDownDivider}
+            role="separator"
+            aria-orientation="vertical"
+            className={`w-2 -ml-1 z-20 cursor-col-resize flex items-center justify-center select-none transition-colors group ${
+              isDragging
+                ? 'bg-cyan-500 ring-2 ring-cyan-400/40'
+                : 'bg-zinc-200 hover:bg-cyan-400 dark:bg-zinc-800 dark:hover:bg-cyan-500'
+            }`}
+            title="Arraste para redimensionar tabela e painel de detalhes (25% a 75%)"
+          >
+            <div className="w-0.5 h-8 bg-zinc-400 group-hover:bg-white rounded-full opacity-60 group-hover:opacity-100 transition-opacity" />
+          </div>
+        )}
+
         {/* Forensic Inspector Detail Panel (Drawer) */}
         {selectedEntry && (
-          <div className="w-1/2 border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex flex-col overflow-hidden animate-in slide-in-from-right duration-150">
+          <div
+            style={{
+              width: isDetailMaximized ? '100%' : `${100 - tableWidthPercent}%`,
+            }}
+            className={`border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex flex-col overflow-hidden animate-in slide-in-from-right duration-150 ${
+              isDetailMaximized ? 'w-full flex-1' : 'shrink-0'
+            }`}
+          >
             {/* Header */}
             <div className="p-3 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/80 flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
@@ -1294,24 +1536,21 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
                 </div>
               </div>
               <div className="flex items-center gap-1">
-                {/* Copy cURL */}
+                {/* Maximize / Restore Fullscreen Toggle */}
                 <button
-                  onClick={() => copyToClipboard(generateCurlCommand(selectedEntry), 'curl')}
-                  className="inline-flex items-center gap-1 px-2 py-1 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded text-xs transition"
-                  title="Copiar comando cURL executável"
+                  onClick={() => setIsDetailMaximized((prev) => !prev)}
+                  className={`p-1.5 rounded transition ${
+                    isDetailMaximized
+                      ? 'bg-cyan-100 dark:bg-cyan-950/80 text-cyan-700 dark:text-cyan-300 font-bold border border-cyan-300 dark:border-cyan-800'
+                      : 'hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                  title={isDetailMaximized ? 'Restaurar divisão (Tecla F)' : 'Modo Tela Cheia (Tecla F)'}
                 >
-                  {copiedKey === 'curl' ? (
-                    <>
-                      <Check size={12} className="text-emerald-500" />
-                      <span className="text-[11px] text-emerald-500 font-bold">Copiado</span>
-                    </>
-                  ) : (
-                    <>
-                      <Terminal size={12} />
-                      <span className="text-[11px]">cURL</span>
-                    </>
-                  )}
+                  {isDetailMaximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
                 </button>
+
+                {/* Replay Export Dropdown (cURL, Fetch, PowerShell) */}
+                <ReplayExportDropdown entry={selectedEntry} />
 
                 {/* Copy URL */}
                 <button
@@ -1324,9 +1563,12 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
 
                 {/* Close Drawer */}
                 <button
-                  onClick={() => onSelectEntry(null)}
+                  onClick={() => {
+                    onSelectEntry(null);
+                    setIsDetailMaximized(false);
+                  }}
                   className="p-1.5 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 rounded transition"
-                  title="Fechar painel"
+                  title="Fechar painel (Esc)"
                 >
                   <X size={15} />
                 </button>
@@ -1334,10 +1576,10 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
             </div>
 
             {/* Inspector Tabs */}
-            <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100/50 dark:bg-zinc-900/50 px-2 text-xs">
+            <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-100/50 dark:bg-zinc-900/50 px-2 text-xs overflow-x-auto">
               <button
                 onClick={() => setActiveTab('headers')}
-                className={`px-3 py-2 border-b-2 font-medium transition ${
+                className={`px-3 py-2 border-b-2 font-medium transition whitespace-nowrap ${
                   activeTab === 'headers'
                     ? 'border-cyan-500 text-cyan-600 dark:text-cyan-300'
                     : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
@@ -1347,7 +1589,7 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
               </button>
               <button
                 onClick={() => setActiveTab('security')}
-                className={`px-3 py-2 border-b-2 font-medium flex items-center gap-1.5 transition ${
+                className={`px-3 py-2 border-b-2 font-medium flex items-center gap-1.5 transition whitespace-nowrap ${
                   activeTab === 'security'
                     ? 'border-rose-500 text-rose-600 dark:text-rose-300'
                     : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
@@ -1358,7 +1600,7 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
               </button>
               <button
                 onClick={() => setActiveTab('payload')}
-                className={`px-3 py-2 border-b-2 font-medium transition ${
+                className={`px-3 py-2 border-b-2 font-medium transition whitespace-nowrap ${
                   activeTab === 'payload'
                     ? 'border-cyan-500 text-cyan-600 dark:text-cyan-300'
                     : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
@@ -1367,8 +1609,35 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
                 Payload / Resposta
               </button>
               <button
+                onClick={() => setActiveTab('preview')}
+                className={`px-3 py-2 border-b-2 font-medium flex items-center gap-1.5 transition whitespace-nowrap ${
+                  activeTab === 'preview'
+                    ? 'border-cyan-500 text-cyan-600 dark:text-cyan-300'
+                    : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                }`}
+              >
+                <ImageIcon
+                  size={12}
+                  className={
+                    Boolean(
+                      (selectedEntry.response.content?.mimeType || '').toLowerCase().startsWith('image/') ||
+                      (selectedEntry.response.content?.mimeType || '').toLowerCase().includes('svg') ||
+                      (selectedEntry.response.content?.text || '').trim().startsWith('<svg')
+                    )
+                      ? 'text-amber-500'
+                      : ''
+                  }
+                />
+                <span>Preview</span>
+                {Boolean(
+                  (selectedEntry.response.content?.mimeType || '').toLowerCase().startsWith('image/') ||
+                  (selectedEntry.response.content?.mimeType || '').toLowerCase().includes('svg') ||
+                  (selectedEntry.response.content?.text || '').trim().startsWith('<svg')
+                ) && <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />}
+              </button>
+              <button
                 onClick={() => setActiveTab('cookies')}
-                className={`px-3 py-2 border-b-2 font-medium transition ${
+                className={`px-3 py-2 border-b-2 font-medium transition whitespace-nowrap ${
                   activeTab === 'cookies'
                     ? 'border-cyan-500 text-cyan-600 dark:text-cyan-300'
                     : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
@@ -1378,7 +1647,7 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
               </button>
               <button
                 onClick={() => setActiveTab('timings')}
-                className={`px-3 py-2 border-b-2 font-medium transition ${
+                className={`px-3 py-2 border-b-2 font-medium transition whitespace-nowrap ${
                   activeTab === 'timings'
                     ? 'border-cyan-500 text-cyan-600 dark:text-cyan-300'
                     : 'border-transparent text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
@@ -1506,44 +1775,28 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
               {activeTab === 'payload' && (
                 <div className="space-y-4 font-mono">
                   {selectedEntry.request.postData?.text && (
-                    <div className="border border-zinc-200 dark:border-zinc-800 rounded-md bg-zinc-50/50 dark:bg-zinc-900/30 overflow-hidden">
-                      <div className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-900/80 border-b border-zinc-200 dark:border-zinc-800 font-sans font-semibold text-zinc-700 dark:text-zinc-300 text-[11px] flex justify-between">
-                        <span>Request Body ({selectedEntry.request.postData.mimeType})</span>
-                        <button
-                          onClick={() => copyToClipboard(selectedEntry.request.postData?.text || '', 'req-body')}
-                          className="text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 text-[10px]"
-                        >
-                          {copiedKey === 'req-body' ? 'Copiado!' : 'Copiar'}
-                        </button>
-                      </div>
-                      <pre className="p-3 text-xs text-zinc-800 dark:text-zinc-300 overflow-x-auto max-h-56">
-                        {selectedEntry.request.postData.text}
-                      </pre>
-                    </div>
+                    <PayloadViewer
+                      content={selectedEntry.request.postData.text}
+                      mimeType={selectedEntry.request.postData.mimeType || 'application/json'}
+                      title="Corpo da Requisição (Request Payload)"
+                    />
                   )}
 
-                  <div className="border border-zinc-200 dark:border-zinc-800 rounded-md bg-zinc-50/50 dark:bg-zinc-900/30 overflow-hidden">
-                    <div className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-900/80 border-b border-zinc-200 dark:border-zinc-800 font-sans font-semibold text-zinc-700 dark:text-zinc-300 text-[11px] flex justify-between">
-                      <span>Response Content ({selectedEntry.response.content?.mimeType || 'unknown'})</span>
-                      {selectedEntry.response.content?.text && (
-                        <button
-                          onClick={() => copyToClipboard(selectedEntry.response.content?.text || '', 'res-body')}
-                          className="text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 text-[10px]"
-                        >
-                          {copiedKey === 'res-body' ? 'Copiado!' : 'Copiar'}
-                        </button>
-                      )}
-                    </div>
-                    {selectedEntry.response.content?.text ? (
-                      <pre className="p-3 text-xs text-zinc-800 dark:text-zinc-300 overflow-x-auto max-h-80 whitespace-pre-wrap break-all">
-                        {selectedEntry.response.content.text}
-                      </pre>
-                    ) : (
-                      <div className="p-6 text-center text-zinc-400 dark:text-zinc-500 font-sans text-xs">
-                        Corpo da resposta vazio ou binário não incluído no arquivo HAR.
-                      </div>
-                    )}
-                  </div>
+                  <PayloadViewer
+                    content={selectedEntry.response.content?.text}
+                    mimeType={selectedEntry.response.content?.mimeType || 'unknown'}
+                    encoding={selectedEntry.response.content?.encoding}
+                    title="Conteúdo da Resposta (Response Body)"
+                  />
+                </div>
+              )}
+
+              {activeTab === 'preview' && (
+                <div className="space-y-4">
+                  <ResponseMediaPreview
+                    response={selectedEntry.response}
+                    url={selectedEntry.request.url}
+                  />
                 </div>
               )}
 
