@@ -11,6 +11,7 @@ import {
   GitCompare,
   Code2,
   Zap,
+  ArrowRightLeft,
 } from 'lucide-react';
 
 import { RequestsInspector } from './modules/RequestsInspector.tsx';
@@ -19,6 +20,7 @@ import { SecurityAuditTool } from '../tools/securityAudit/SecurityAuditTool.tsx'
 import { JwtDecoderTool } from '../tools/jwtDecoder/JwtDecoderTool.tsx';
 import { AnomaliesTool } from '../tools/anomalies/AnomaliesTool.tsx';
 import { HarDiffTool } from '../tools/diff/HarDiffTool.tsx';
+import { RequestComparatorTool } from '../tools/comparator/RequestComparatorTool.tsx';
 import { MockExporterTool } from '../tools/mockExporter/MockExporterTool.tsx';
 import { WaterfallTimings } from './modules/WaterfallTimings.tsx';
 import { DomainTelemetry } from './modules/DomainTelemetry.tsx';
@@ -130,15 +132,27 @@ export function initializeDefaultPlugins(): void {
     render: (context) => React.createElement(AnomaliesTool, context),
   };
 
-  // 6. HAR Diff (Comparador)
+  // 6. Comparador Rápido de Requisições (Side-by-Side)
+  const requestComparatorPlugin: ToolPlugin = {
+    id: 'request-comparator',
+    name: 'Comparador de Requisições',
+    shortName: 'Comparador Side-by-Side',
+    description: 'Comparação lado a lado de duas requisições do mesmo HAR (cabeçalhos, cookies, CSRF, payloads e tempos).',
+    category: 'network',
+    icon: ArrowRightLeft,
+    badgeVariant: 'info',
+    render: (context) => React.createElement(RequestComparatorTool, context),
+  };
+
+  // 7. HAR Diff (Comparador de Arquivos)
   const harDiffPlugin: ToolPlugin = {
     id: 'har-diff',
-    name: 'HAR Diff (Comparador)',
+    name: 'HAR Diff (Comparador de Arquivos)',
     shortName: 'HAR Diff',
     description: 'Comparação de estatísticas, requisições faltantes e regressões entre dois arquivos HAR.',
     category: 'performance',
     icon: GitCompare,
-    badgeVariant: 'info',
+    badgeVariant: 'neutral',
     render: (context) => React.createElement(HarDiffTool, context),
   };
 
@@ -185,6 +199,7 @@ export function initializeDefaultPlugins(): void {
   };
 
   toolRegistry.register(requestsPlugin);
+  toolRegistry.register(requestComparatorPlugin);
   toolRegistry.register(sanitizerPlugin);
   toolRegistry.register(securityAuditPlugin);
   toolRegistry.register(jwtDecoderPlugin);

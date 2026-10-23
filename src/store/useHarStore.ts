@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { HarRoot, HarMetrics, EnrichedHarEntry } from '../types/har.ts';
 import type { WorkerInMessage, WorkerOutMessage } from '../workers/harParser.worker.ts';
 import { generateSampleHarJson } from '../utils/demoHar.ts';
+import type { InvestigationEntryNote, InvestigationTag } from '../types/investigation.ts';
 
 export type ParsingStage = 'idle' | 'reading' | 'parsing' | 'analyzing' | 'ready' | 'error';
 
@@ -25,6 +26,11 @@ interface HarState {
   selectedEntryId: string | null;
   searchQuery: string;
 
+  // Investigation & Notes State
+  pinnedEntryIds: string[];
+  investigationNotes: Record<string, InvestigationEntryNote>;
+  isInvestigationAsideOpen: boolean;
+
   // Actions
   loadFile: (file: File) => Promise<void>;
   loadSampleHar: () => void;
@@ -35,6 +41,15 @@ interface HarState {
   setSelectedEntryId: (id: string | null) => void;
   setSearchQuery: (query: string) => void;
   clearFile: () => void;
+
+  // Investigation Actions
+  togglePinEntry: (id: string) => void;
+  isPinned: (id: string) => boolean;
+  setEntryNote: (id: string, note: string) => void;
+  toggleEntryTag: (id: string, tag: InvestigationTag) => void;
+  setInvestigationAsideOpen: (open: boolean) => void;
+  toggleInvestigationAside: () => void;
+  clearAllPinned: () => void;
 }
 
 const initialMetrics: HarMetrics = {
@@ -96,6 +111,11 @@ export const useHarStore = create<HarState>((set, get) => ({
   sidebarCollapsed: false,
   selectedEntryId: null,
   searchQuery: '',
+
+  // Investigation & Notes initial state
+  pinnedEntryIds: [],
+  investigationNotes: {},
+  isInvestigationAsideOpen: false,
 
   loadFile: async (file: File) => {
     set({
@@ -244,6 +264,103 @@ export const useHarStore = create<HarState>((set, get) => ({
       errorMessage: null,
       selectedEntryId: null,
       searchQuery: '',
+      pinnedEntryIds: [],
+      investigationNotes: {},
+      isInvestigationAsideOpen: false,
     });
+  },
+
+  togglePinEntry: (id: string) => {
+    set((state) => {
+      const isAlreadyPinned = state.pinnedEntryIds.includes(id);
+      if (isAlreadyPinned) {
+        return {
+          pinnedEntryIds: state.pinnedEntryIds.filter((item) => item !== id),
+        };
+      } else {
+        const now = new Date().toISOString();
+        const existingNote = state.investigationNotes[id];
+        return {
+          pinnedEntryIds: [id, ...state.pinnedEntryIds],
+          isInvestigationAsideOpen: true, // Auto-open aside on pinning
+          investigationNotes: {
+            ...state.investigationNotes,
+            [id]: existingNote || {
+              entryId: id,
+              note: '',
+              tags: [],
+              pinnedAt: now,
+              updatedAt: now,
+            },
+          },
+        };
+      }
+    });
+  },
+
+  isPinned: (id: string) => {
+    return get().pinnedEntryIds.includes(id);
+  },
+
+  setEntryNote: (id: string, note: string) => {
+    set((state) => {
+      const now = new Date().toISOString();
+      const current = state.investigationNotes[id] || {
+        entryId: id,
+        note: '',
+        tags: [],
+        pinnedAt: now,
+        updatedAt: now,
+      };
+      return {
+        investigationNotes: {
+          ...state.investigationNotes,
+          [id]: {
+            ...current,
+            note,
+            updatedAt: now,
+          },
+        },
+      };
+    });
+  },
+
+  toggleEntryTag: (id: string, tag: InvestigationTag) => {
+    set((state) => {
+      const now = new Date().toISOString();
+      const current = state.investigationNotes[id] || {
+        entryId: id,
+        note: '',
+        tags: [],
+        pinnedAt: now,
+        updatedAt: now,
+      };
+      const hasTag = current.tags.includes(tag);
+      const newTags = hasTag
+        ? current.tags.filter((t) => t !== tag)
+        : [...current.tags, tag];
+      return {
+        investigationNotes: {
+          ...state.investigationNotes,
+          [id]: {
+            ...current,
+            tags: newTags,
+            updatedAt: now,
+          },
+        },
+      };
+    });
+  },
+
+  setInvestigationAsideOpen: (open: boolean) => {
+    set({ isInvestigationAsideOpen: open });
+  },
+
+  toggleInvestigationAside: () => {
+    set((state) => ({ isInvestigationAsideOpen: !state.isInvestigationAsideOpen }));
+  },
+
+  clearAllPinned: () => {
+    set({ pinnedEntryIds: [] });
   },
 }));

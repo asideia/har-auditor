@@ -29,10 +29,17 @@ import {
   Minimize2,
   GripVertical,
   Image as ImageIcon,
+  Star,
+  FileText,
+  FileDown,
+  ArrowRightLeft,
 } from 'lucide-react';
 import { PayloadViewer } from '../../components/payload/PayloadViewer.tsx';
 import { ResponseMediaPreview } from '../../components/payload/ResponseMediaPreview.tsx';
 import { ReplayExportDropdown } from '../../components/payload/ReplayExportDropdown.tsx';
+import { useInvestigationStore } from '../../store/useInvestigationStore.ts';
+import { useHarStore } from '../../store/useHarStore.ts';
+import { useComparisonStore } from '../../store/useComparisonStore.ts';
 
 type SortField = 'status' | 'method' | 'datetime' | 'url' | 'domain' | 'size' | 'time' | 'alerts';
 type SortOrder = 'asc' | 'desc';
@@ -144,6 +151,18 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
   searchQuery,
   setSearchQuery,
 }) => {
+  const fileName = useHarStore((state) => state.fileName);
+  const setActiveTool = useHarStore((state) => state.setActiveTool);
+  const { entryAId, setEntryAId, setEntryBId } = useComparisonStore();
+  const {
+    pinnedIds,
+    notes,
+    onlyPinned,
+    togglePin,
+    isPinned,
+    setOnlyPinned,
+    toggleOnlyPinned,
+  } = useInvestigationStore();
   // Quick type & state filters
   const [filterType, setFilterType] = useState<string>('all');
   const [onlyErrors, setOnlyErrors] = useState(false);
@@ -282,6 +301,7 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
   const activeFiltersCount = useMemo(() => {
     let count = 0;
     if (searchQuery.trim()) count++;
+    if (onlyPinned) count++;
     if (selectedDomain !== null) count++;
     if (latencyFilter !== 'all') count++;
     if (selectedStatuses.size > 0) count += selectedStatuses.size;
@@ -302,6 +322,7 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
     return count;
   }, [
     searchQuery,
+    onlyPinned,
     selectedDomain,
     latencyFilter,
     selectedStatuses,
@@ -314,6 +335,7 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
 
   const resetAllFilters = () => {
     setSearchQuery('');
+    setOnlyPinned(false);
     setSelectedDomain(null);
     setLatencyFilter('all');
     setSelectedStatuses(new Set());
@@ -341,6 +363,9 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
   // MULTIDIMENSIONAL FILTERING PIPELINE
   const filteredEntries = useMemo(() => {
     return entries.filter((entry) => {
+      // 0. Pinned filter
+      if (onlyPinned && !pinnedIds.includes(entry.id)) return false;
+
       // 1. Quick toolbar toggles
       if (onlyErrors && !entry.isError) return false;
       if (onlySecurityIssues && entry.securityIssues.length === 0) return false;
@@ -514,6 +539,8 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
     });
   }, [
     entries,
+    onlyPinned,
+    pinnedIds,
     filterType,
     onlyErrors,
     onlySecurityIssues,
@@ -898,6 +925,20 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
             </button>
           )}
 
+          {/* 1-Click Pinned Filter Toggle */}
+          <button
+            onClick={toggleOnlyPinned}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs border transition cursor-pointer ${
+              onlyPinned
+                ? 'bg-amber-500 text-white border-amber-600 font-bold shadow-2xs'
+                : 'bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+            }`}
+            title="Filtrar apenas requisições favoritas/pinadas para esta investigação"
+          >
+            <Star size={13} className={onlyPinned ? 'fill-white text-white' : 'text-amber-500'} />
+            <span>Pinados ({pinnedIds.length})</span>
+          </button>
+
           <button
             onClick={() => setOnlySecurityIssues(!onlySecurityIssues)}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs border transition ${
@@ -1103,12 +1144,13 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
           <div className="min-w-[960px] flex-1 flex flex-col h-full overflow-hidden">
             {/* Column Headers with Interactive Sorting */}
             <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-zinc-100 dark:bg-zinc-900/90 border-b border-zinc-200 dark:border-zinc-800 text-[11px] font-semibold text-zinc-600 dark:text-zinc-400 uppercase tracking-wider select-none">
-              {/* Col 1: Status */}
+              {/* Col 1: Pin & Status */}
               <div
                 onClick={() => handleSortToggle('status')}
-                className="col-span-1 flex items-center justify-between cursor-pointer hover:text-cyan-600 dark:hover:text-cyan-400 group"
-                title="Clique para ordenar por Status"
+                className="col-span-1 flex items-center gap-1 cursor-pointer hover:text-cyan-600 dark:hover:text-cyan-400 group"
+                title="Pin de Investigação e Código de Status (clique para ordenar)"
               >
+                <Star size={11} className="text-amber-500 shrink-0" />
                 <span>Status</span>
                 {renderSortIcon('status')}
               </div>
@@ -1361,8 +1403,46 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
                           : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/60'
                       }`}
                     >
-                      {/* Status */}
-                      <div className="col-span-1">{getStatusBadge(entry.response.status, entry.isError)}</div>
+                      {/* Status + Pin Star */}
+                      <div className="col-span-1 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            togglePin(entry.id);
+                          }}
+                          className="p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 transition cursor-pointer shrink-0"
+                          title={isPinned(entry.id) ? 'Desmarcar requisição dos favoritos' : 'Favoritar / Pin requisição suspeita'}
+                        >
+                          <Star
+                            size={13}
+                            className={
+                              isPinned(entry.id)
+                                ? 'fill-amber-400 text-amber-500'
+                                : 'text-zinc-300 dark:text-zinc-600 hover:text-amber-400'
+                            }
+                          />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!entryAId) {
+                              setEntryAId(entry.id);
+                            } else if (entryAId !== entry.id) {
+                              setEntryBId(entry.id);
+                            } else {
+                              setEntryAId(entry.id);
+                            }
+                            setActiveTool('request-comparator');
+                          }}
+                          className="p-1 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-300 dark:text-zinc-600 hover:text-cyan-600 dark:hover:text-cyan-400 transition cursor-pointer shrink-0"
+                          title="Comparar requisição lado a lado"
+                        >
+                          <ArrowRightLeft size={12} />
+                        </button>
+                        <div>{getStatusBadge(entry.response.status, entry.isError)}</div>
+                      </div>
 
                       {/* Método */}
                       <div className="col-span-1">{getMethodBadge(entry.request.method)}</div>
@@ -1394,6 +1474,29 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
                           {entry.parsedUrl.search && (
                             <span className="text-zinc-500 font-mono text-[11px] truncate">{entry.parsedUrl.search}</span>
                           )}
+
+                          {/* Forensic Investigation Note Indicator */}
+                          {notes[entry.id]?.note && (
+                            <span
+                              className="px-1.5 py-0.2 rounded text-[10px] font-sans font-medium bg-purple-100 dark:bg-purple-950/80 text-purple-800 dark:text-purple-300 border border-purple-300 dark:border-purple-800 shrink-0 flex items-center gap-0.5"
+                              title={`Anotação Forense: ${notes[entry.id].note}`}
+                            >
+                              <FileText size={10} />
+                              <span className="hidden xl:inline">Nota</span>
+                            </span>
+                          )}
+
+                          {/* Forensic Tags Badges */}
+                          {(notes[entry.id]?.tags || []).slice(0, 1).map((tag) => (
+                            <span
+                              key={tag}
+                              className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold uppercase bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0"
+                              title={`Tag de diagnóstico: ${tag}`}
+                            >
+                              {tag}
+                            </span>
+                          ))}
+
                           {/* Deep Search match labels */}
                           {matchBadges.map((badge) => (
                             <span
@@ -1536,6 +1639,48 @@ export const RequestsInspector: React.FC<ToolPluginContext> = ({
                 </div>
               </div>
               <div className="flex items-center gap-1">
+                {/* Quick Compare Button in Drawer */}
+                <button
+                  onClick={() => {
+                    if (!entryAId) {
+                      setEntryAId(selectedEntry.id);
+                    } else if (entryAId !== selectedEntry.id) {
+                      setEntryBId(selectedEntry.id);
+                    } else {
+                      setEntryAId(selectedEntry.id);
+                    }
+                    setActiveTool('request-comparator');
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded text-xs border border-cyan-300 dark:border-cyan-800 bg-cyan-50 dark:bg-cyan-950/60 hover:bg-cyan-100 dark:hover:bg-cyan-900/80 text-cyan-800 dark:text-cyan-300 transition cursor-pointer font-semibold shadow-2xs"
+                  title="Abrir esta requisição no Comparador Rápido Lado a Lado"
+                >
+                  <ArrowRightLeft size={13} />
+                  <span className="hidden sm:inline">Comparar</span>
+                </button>
+
+                {/* Pin / Star Toggle in Drawer Header */}
+                <button
+                  onClick={() => togglePin(selectedEntry.id)}
+                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs border transition cursor-pointer ${
+                    isPinned(selectedEntry.id)
+                      ? 'bg-amber-500 hover:bg-amber-600 text-white border-amber-600 font-semibold shadow-2xs'
+                      : 'bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700'
+                  }`}
+                  title={
+                    isPinned(selectedEntry.id)
+                      ? 'Requisição Pinada (Favorita) - Clique para desmarcar'
+                      : 'Favoritar / Pin requisição suspeita'
+                  }
+                >
+                  <Star
+                    size={13}
+                    className={isPinned(selectedEntry.id) ? 'fill-white text-white' : 'text-amber-500'}
+                  />
+                  <span className="hidden sm:inline">
+                    {isPinned(selectedEntry.id) ? 'Pinada' : 'Pin'}
+                  </span>
+                </button>
+
                 {/* Maximize / Restore Fullscreen Toggle */}
                 <button
                   onClick={() => setIsDetailMaximized((prev) => !prev)}

@@ -1,8 +1,10 @@
 import React, { useState, useRef, DragEvent, ChangeEvent } from 'react';
 import { useHarStore } from '../../store/useHarStore.ts';
+import { useInvestigationStore } from '../../store/useInvestigationStore.ts';
 import { toolRegistry } from '../../plugins/ToolRegistry.ts';
 import { Sidebar } from './Sidebar.tsx';
 import { ThemeSelector } from '../common/ThemeSelector.tsx';
+import { InvestigationAside } from '../investigation/InvestigationAside.tsx';
 import {
   UploadCloud,
   FileCode,
@@ -16,6 +18,7 @@ import {
   HardDrive,
   RefreshCw,
   FolderOpen,
+  Star,
 } from 'lucide-react';
 
 export const AppLayout: React.FC = () => {
@@ -40,6 +43,12 @@ export const AppLayout: React.FC = () => {
     toggleSidebar,
     clearFile,
   } = useHarStore();
+
+  const {
+    pinnedIds,
+    isAsideOpen,
+    toggleAside,
+  } = useInvestigationStore();
 
   const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -235,6 +244,30 @@ export const AppLayout: React.FC = () => {
                   <span>Alertas:</span>
                   <span className="font-bold">{metrics.securitySummary.total}</span>
                 </div>
+
+                {/* Investigation / Pinned Notes Toggle Button */}
+                <button
+                  onClick={toggleAside}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-mono transition cursor-pointer select-none ${
+                    isAsideOpen
+                      ? 'bg-amber-100 dark:bg-amber-950/80 border-amber-400 dark:border-amber-700 text-amber-900 dark:text-amber-200 shadow-2xs font-semibold'
+                      : pinnedIds.length > 0
+                      ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/60'
+                      : 'bg-zinc-100 dark:bg-zinc-900/90 border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-amber-400 dark:hover:border-amber-600'
+                  }`}
+                  title="Abrir/Fechar Painel de Investigação e Notas"
+                >
+                  <Star
+                    size={13}
+                    className={
+                      pinnedIds.length > 0
+                        ? 'fill-amber-400 text-amber-500'
+                        : 'text-zinc-400'
+                    }
+                  />
+                  <span className="hidden sm:inline">Investigação:</span>
+                  <span className="font-bold">{pinnedIds.length}</span>
+                </button>
               </>
             )}
 
@@ -415,6 +448,9 @@ export const AppLayout: React.FC = () => {
           </div>
         </footer>
       </div>
+
+      {/* Collapsible Right Investigation Aside */}
+      {har && <InvestigationAside />}
     </div>
   );
 };
